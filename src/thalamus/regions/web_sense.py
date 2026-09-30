@@ -121,7 +121,7 @@ class WebSense(BrainRegion):
                 query = outcome.query_generation.text.strip().strip('"').splitlines()[0][:200] or ctx.message
                 topic = ctx.sweep.choices["web.topic"].choice
                 found = await self.provider.search(query, topic=topic, max_results=ctx.settings.web.max_results)
-            outcome.billable_calls = 1
+            outcome.billable_calls = found.calls
         except Exception as error:  # noqa: BLE001 - a failed search must not break the conversation
             problem = explain(error)
             record.update(decision="failed", reason=problem.message)
@@ -129,8 +129,17 @@ class WebSense(BrainRegion):
             return outcome
 
         record["query"] = found.query
+        if found.note:
+            record["reason"] = f"{record['reason']}: {found.note}"
         record["latency_ms"] = round(found.latency_ms)
         outcome.signals, outcome.gate_decision = await self._gate(ctx, found, jev, trusted=bool(url))
+        if url:  # always tell the cortex what happened, so it never has to guess why
+            status = f"You tried to read {url}: {found.note or 'done'}."
+            if not outcome.signals:
+                status += " Tell the user plainly; the site may block automated readers or be offline."
+            outcome.signals.insert(
+                0, Signal(source=self.name, kind="web", key=f"web-status:{url}", content=status, salience=0.97)
+            )
         ctx.trace.log(
             self.name,
             "orient",

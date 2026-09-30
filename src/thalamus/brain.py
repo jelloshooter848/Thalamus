@@ -222,7 +222,7 @@ class Brain:
         # Learn: remember the exchange and what was done, for next turn's critic.
         self.hippocampus.encode(ctx, reply)
         cost = self.homeostasis.spent_usd - spent_before
-        sources = [signal.meta for signal in conscious if signal.kind == "web"]
+        sources = [signal.meta for signal in conscious if signal.kind == "web" and signal.meta.get("url")]
         meta = {"path": ctx.arbitration.path, "context": ctx.context_label, "cost_usd": cost, "sources": sources}
         self.history += [Turn("user", message), Turn("assistant", reply, meta)]
         self.last_activity = now
