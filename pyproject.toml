@@ -17,6 +17,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "tavily-python>=0.7",
+    "segno>=1.5",
 ]
 
 [project.optional-dependencies]

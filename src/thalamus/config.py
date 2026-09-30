@@ -88,12 +88,21 @@ class Web:
 
 
 @dataclass
+class Remote:
+    port: int = 8765  # fixed, so the phone's home-screen icon keeps working
+    session_days: float = 90.0  # how long a phone stays logged in
+    keep_awake: bool = True  # stop the PC from sleeping while phone access is on
+    allow_lan: bool = False  # also accept devices on the home network (Tailscale is always allowed)
+
+
+@dataclass
 class Settings:
     models: Models = field(default_factory=Models)
     thresholds: Thresholds = field(default_factory=Thresholds)
     budget: Budget = field(default_factory=Budget)
     memory: Memory = field(default_factory=Memory)
     web: Web = field(default_factory=Web)
+    remote: Remote = field(default_factory=Remote)
     workspace_capacity: int = 7
     history_turns: int = 6
     # After this long without a message, the next one starts a new conversation.

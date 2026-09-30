@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="THALAMUS">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#6d5dfc">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
 <title>THALAMUS</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%236d5dfc'/><circle cx='16' cy='16' r='5' fill='white'/></svg>">
 <style>
@@ -162,10 +169,44 @@
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { color: var(--muted); font-weight: 600; }
 
+  body { height: 100dvh; }
+  header { padding-top: max(12px, env(safe-area-inset-top)); padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+  form.composer { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  .short, #panelBtn, #panelClose { display: none; }
+
+  /* Phone access card */
+  .phone { margin-top: 20px; }
+  .phone h2 { margin: 0 0 4px; font-size: 18px; }
+  .steps { margin: 8px 0 16px; padding-left: 20px; color: var(--muted); font-size: 14px; }
+  .steps a { color: var(--accent); }
+  .toggle { display: flex; align-items: center; gap: 10px; font-weight: 600; margin-bottom: 14px; cursor: pointer; }
+  .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .ts { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); margin-bottom: 14px; }
+  .ts.ok::before { content: "✓ "; color: var(--fast); font-weight: 700; }
+  .ts.warn::before { content: "! "; color: var(--slow); font-weight: 700; }
+  .qr { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 16px; padding: 14px; border: 1px dashed var(--border); border-radius: 12px; }
+  .qr .code { background: #fff; border-radius: 8px; padding: 4px; line-height: 0; }
+  .qr .code svg { width: 150px; height: 150px; }
+  .qr .how { flex: 1; min-width: 180px; font-size: 14px; }
+  .qr code { font-size: 13px; overflow-wrap: anywhere; }
+
   @media (max-width: 860px) {
-    #chat { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
-    aside { border-left: 0; border-top: 1px solid var(--border); max-height: 38vh; }
+    #chat { grid-template-columns: 1fr; }
+    aside { display: none; }
+    body.panel-open aside {
+      display: block; position: fixed; inset: 0; z-index: 20; border-left: 0;
+      padding-top: max(18px, env(safe-area-inset-top)); padding-bottom: max(18px, env(safe-area-inset-bottom));
+    }
+    #panelBtn { display: inline-block; }
+    #panelClose { display: block; width: 100%; margin-bottom: 12px; }
+    header { gap: 8px; }
     header .tag { display: none; }
+    header { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); gap: 6px; }
+    header .btn { padding: 6px 9px; font-size: 14px; }
+    .brand { font-size: 14px; letter-spacing: .04em; }
+    .logo { width: 22px; height: 22px; }
+    .logo::after { inset: 7px; }
+    .long { display: none; } .short { display: inline; }
     #messages, form.composer { padding-left: 16px; padding-right: 16px; }
   }
 </style>
@@ -178,9 +219,10 @@
     <div class="tag">Thought Hub for Attention, Learning, Arbitration, Memory &amp; Unified Synthesis</div>
   </div>
   <div class="spacer"></div>
-  <button class="btn hidden" id="newConvBtn" type="button" title="Start fresh. THALAMUS keeps its long-term memory.">New conversation</button>
+  <button class="btn hidden" id="newConvBtn" type="button" title="Start fresh. THALAMUS keeps its long-term memory."><span class="long">New conversation</span><span class="short">New</span></button>
   <button class="btn hidden" id="memoryBtn" type="button">Memory</button>
-  <button class="btn hidden" id="settingsBtn" type="button">Settings</button>
+  <button class="btn hidden" id="panelBtn" type="button" aria-label="Show brain activity">Brain</button>
+  <button class="btn hidden" id="settingsBtn" type="button"><span class="long">Settings</span><span class="short" aria-label="Settings">⚙</span></button>
 </header>
 
 <main>
@@ -218,6 +260,39 @@
         </div>
         <ul class="checks" id="checks"></ul>
       </form>
+      <div id="remoteNote" class="hidden muted" style="margin-top:12px">Finish setting up your keys on the PC; then THALAMUS will be ready here too.</div>
+    </div>
+
+    <div class="card phone hidden" id="phoneCard">
+      <h2>Phone access</h2>
+      <p class="lead">Chat with the THALAMUS running on this PC from your phone, with the same memory. It uses <strong>Tailscale</strong>, a free private network between your own devices, so THALAMUS is never exposed to the public internet.</p>
+      <ol class="steps">
+        <li>Install Tailscale on this PC and on your phone (<a href="https://tailscale.com/download" target="_blank" rel="noopener">tailscale.com/download</a>) and sign in to the same account on both.</li>
+        <li>Turn on phone access below, choose a passcode, and save.</li>
+        <li>Close the THALAMUS window and double-click the launcher again.</li>
+        <li>Scan the QR code with your iPhone camera, log in, then tap <strong>Share → Add to Home Screen</strong>.</li>
+      </ol>
+      <div class="ts" id="tsStatus">Checking for Tailscale…</div>
+      <form id="phoneForm" autocomplete="off">
+        <label class="toggle"><input type="checkbox" id="phoneOn"> Allow my phone to connect</label>
+        <div class="field" data-field="passcode">
+          <label for="passcode"><span>Passcode <span class="muted" id="passcodeHint">(at least 6 characters)</span></span></label>
+          <div class="input-wrap"><input id="passcode" type="password" autocomplete="new-password" placeholder="Choose a passcode"></div>
+          <div class="help">You'll type this once on your phone. Changing it logs your phone out.</div>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="phoneSave" type="submit">Save</button>
+          <span class="muted" id="phoneStatus"></span>
+        </div>
+      </form>
+      <div class="qr hidden" id="qrBox">
+        <div class="code" id="qrCode"></div>
+        <div class="how">
+          <strong>Open on your phone</strong>
+          <div id="qrUrls"></div>
+          <p class="muted" style="margin:8px 0 0">Scan with the camera, log in, then <strong>Share → Add to Home Screen</strong> for an app icon. This PC stays awake while THALAMUS runs, so keep it plugged in.</p>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -236,6 +311,7 @@
         <button type="button" role="tab" id="tabBrainBtn" aria-selected="true">Brain activity</button>
         <button type="button" role="tab" id="tabMindBtn" aria-selected="false">Mind</button>
       </div>
+      <button class="btn" id="panelClose" type="button">Close</button>
       <div id="tabMind" class="hidden" role="tabpanel">
         <div id="mindBody" class="muted">The mind is empty until the first message.</div>
       </div>
@@ -304,6 +380,7 @@ async function api(path, body) {
     headers: { "Content-Type": "application/json", "X-Thalamus-Token": TOKEN },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (res.status === 401) { location.reload(); return { error: { message: "Please log in again." } }; }
   const data = await res.json().catch(() => ({ error: { message: `HTTP ${res.status}` } }));
   if (!res.ok && !data.error) data.error = { message: `HTTP ${res.status}` };
   return data;
@@ -328,8 +405,14 @@ function show(view, status) {
   const ready = status && status.ready;
   $("memoryBtn").classList.toggle("hidden", !ready);
   $("newConvBtn").classList.toggle("hidden", !(ready && view === "chat"));
-  $("settingsBtn").classList.toggle("hidden", !ready);
+  const local = !status || status.local !== false;
+  $("settingsBtn").classList.toggle("hidden", !ready || !local);
+  $("panelBtn").classList.toggle("hidden", !(ready && view === "chat"));
   $("cancelSetup").classList.toggle("hidden", !(view === "setup" && ready));
+  $("setupForm").classList.toggle("hidden", !local);
+  $("remoteNote").classList.toggle("hidden", local);
+  $("phoneCard").classList.toggle("hidden", !(view === "setup" && local && ready));
+  if (view === "setup" && local && ready) loadRemote();
   if (view === "setup" && status) {
     for (const key of ["typesafe", "anthropic", "web"]) {
       document.querySelector(`[data-saved="${key}"]`).classList.toggle("hidden", !status[key]);
@@ -339,8 +422,56 @@ function show(view, status) {
     $("tavily").placeholder = status.web ? "Saved (leave blank to keep)" : "tvly-…";
     $("workspace").placeholder = status.workspace ? "Saved (leave blank to keep)" : "wrkspc_…";
   }
-  if (view === "chat") $("input").focus();
+  if (view === "chat" && matchMedia("(pointer: fine)").matches) $("input").focus();
 }
+
+// ---------- phone access ----------
+async function loadRemote() {
+  const r = await api("/api/remote");
+  if (r.error) return;
+  const ts = r.tailscale || {};
+  const status = $("tsStatus");
+  if (ts.ip) {
+    status.className = "ts ok";
+    status.textContent = `Tailscale is connected. This PC is ${ts.name || ts.ip}.`;
+  } else {
+    status.className = "ts warn";
+    status.textContent = ts.installed
+      ? "Tailscale is installed but not connected. Open it and sign in."
+      : "Tailscale isn't installed on this PC yet (step 1).";
+  }
+  $("phoneOn").checked = r.enabled;
+  $("passcode").placeholder = r.passcode_set ? "Saved (leave blank to keep)" : "Choose a passcode";
+  $("passcodeHint").textContent = r.passcode_set ? "(set; type a new one to change it)" : "(at least 6 characters)";
+  $("phoneStatus").textContent = r.enabled && !r.active
+    ? "Saved. Restart THALAMUS (close this window, double-click the launcher) to turn it on."
+    : !r.enabled && r.active ? "Saved. Restart THALAMUS to turn phone access off." : "";
+  $("qrBox").classList.toggle("hidden", !(r.active && r.urls.length));
+  if (r.active && r.urls.length) {
+    $("qrCode").innerHTML = r.qr;
+    $("qrUrls").innerHTML = r.urls.map((u) => `<div><code>${escapeHtml(u)}</code></div>`).join("");
+  }
+}
+
+$("phoneForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  document.querySelector('[data-field="passcode"]').classList.remove("bad");
+  $("phoneSave").disabled = true;
+  const result = await api("/api/remote", { enabled: $("phoneOn").checked, passcode: $("passcode").value });
+  $("phoneSave").disabled = false;
+  if (result.error) {
+    $("phoneStatus").textContent = result.error.message;
+    flagField("passcode");
+    return;
+  }
+  $("passcode").value = "";
+  await loadRemote();
+  if (!result.restart_required) $("phoneStatus").textContent = "Saved.";
+});
+
+if (!matchMedia("(pointer: fine)").matches) $("input").placeholder = "Message THALAMUS…";
+$("panelBtn").addEventListener("click", () => document.body.classList.add("panel-open"));
+$("panelClose").addEventListener("click", () => document.body.classList.remove("panel-open"));
 
 async function boot() {
   const status = await api("/api/status");
