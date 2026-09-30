@@ -18,7 +18,7 @@ HEADERS = {"X-Thalamus-Token": TOKEN}
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for key in ("TYPESAFE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_WORKSPACE_ID"):
+    for key in ("TYPESAFE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_WORKSPACE_ID", "TAVILY_API_KEY"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -52,7 +52,7 @@ def test_foreign_host_is_rejected(tmp_path):
 def test_status_reports_missing_keys(tmp_path):
     client, _ = make_client(tmp_path)
     status = client.get("/api/status", headers=HEADERS).json()
-    assert status == {"typesafe": False, "anthropic": False, "workspace": False, "ready": False}
+    assert status == {"typesafe": False, "anthropic": False, "workspace": False, "web": False, "ready": False}
 
 
 def test_setup_saves_keys_only_when_checks_pass(tmp_path):
@@ -70,6 +70,24 @@ def test_setup_saves_keys_only_when_checks_pass(tmp_path):
     assert "TYPESAFE_API_KEY=ts-1" in saved
     assert "ANTHROPIC_API_KEY=sk-ant-1" in saved
     assert "ANTHROPIC_WORKSPACE_ID=wrkspc_1" in saved
+
+
+def test_setup_saves_optional_search_key(tmp_path):
+    client, env = make_client(tmp_path)
+    body = {"typesafe_key": "ts-1", "anthropic_key": "sk-ant-1", "tavily_key": "tvly-1"}
+    result = client.post("/api/setup", json=body, headers=HEADERS).json()
+    assert result["status"]["web"] is True
+    assert "TAVILY_API_KEY=tvly-1" in env.read_text()
+
+
+def test_blank_fields_keep_saved_values(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_saved")
+    client, env = make_client(tmp_path)
+    client.post("/api/setup", json={"tavily_key": "tvly-2"}, headers=HEADERS)
+    saved = env.read_text()
+    assert "TAVILY_API_KEY=tvly-2" in saved
+    assert "ANTHROPIC_WORKSPACE_ID" not in saved  # untouched, not blanked
+    assert client.get("/api/status", headers=HEADERS).json()["workspace"] is True
 
 
 def test_chat_returns_reply_and_trace(tmp_path, monkeypatch):

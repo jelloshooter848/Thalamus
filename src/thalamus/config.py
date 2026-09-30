@@ -73,11 +73,22 @@ class Memory:
 
 
 @dataclass
+class Web:
+    enabled: bool = True  # also needs TAVILY_API_KEY; without it THALAMUS stays offline
+    threshold: float = 0.6  # JEV's P(needs outside information) required to search
+    max_results: int = 6
+    admit: int = 4  # most results allowed into awareness
+    depth: str = "basic"  # Tavily search depth: basic (1 credit) or advanced (2 credits)
+    price_per_call_usd: float = 0.008
+
+
+@dataclass
 class Settings:
     models: Models = field(default_factory=Models)
     thresholds: Thresholds = field(default_factory=Thresholds)
     budget: Budget = field(default_factory=Budget)
     memory: Memory = field(default_factory=Memory)
+    web: Web = field(default_factory=Web)
     workspace_capacity: int = 7
     history_turns: int = 6
     # After this long without a message, the next one starts a new conversation.

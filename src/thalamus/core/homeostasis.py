@@ -25,6 +25,12 @@ class Homeostasis:
         self.calls[key] = self.calls.get(key, 0) + 1
         return cost
 
+    def record_usd(self, name: str, usd: float) -> float:
+        """For services priced per call rather than per token (e.g. web search)."""
+        self.spent_usd += usd
+        self.calls[name] = self.calls.get(name, 0) + 1
+        return usd
+
     @property
     def depletion(self) -> float:
         if self.budget.session_usd <= 0:

@@ -77,6 +77,12 @@ ACTIONS = ["respond", "clarify", "deliberate", "decline", "other"]
 
 def scenario_rules(state: Mapping[str, Any], questions: Mapping[str, Question]) -> dict[str, Result]:
     """Plausible JEV behaviour keyed off the message, for end-to-end cycle tests."""
+    if "results" in state:  # web relevance gate: admit results that share words with the message
+        cue = set(re.findall(r"[a-z]+", state["latest_user_message"].lower())) - {"the", "what", "is", "in"}
+        return {
+            f"web.{rid}": NoulResult(0.9 if cue & set(re.findall(r"[a-z]+", r["snippet"].lower())) else 0.1)
+            for rid, r in state["results"].items()
+        }
     if "remembered_items" in state:  # working-memory gate: admit items that share words with the cue
         cue = set(re.findall(r"[a-z]+", state["latest_user_message"].lower()))
         answers = {}
@@ -118,7 +124,33 @@ def scenario_rules(state: Mapping[str, Any], questions: Mapping[str, Question]) 
         out["striatum.feedback"] = choice("positive", ["positive", "negative", "neutral"], 0.95)
     if "pipe bomb" in msg:
         out["basal_ganglia.nogo"] = NoulResult(0.97)
+    if any(word in msg for word in ("weather", "latest", "news", "look up")):
+        out["web.needed"] = NoulResult(0.92)
     if "urgent" in msg:
         out["amygdala.urgency"] = score(2)
         out["amygdala.stakes"] = score(2)
     return out
+
+
+@dataclass
+class FakeSearch:
+    """Test-only search engine."""
+
+    results: list = field(default_factory=list)
+    fail: Exception | None = None
+    searches: list[tuple[str, str]] = field(default_factory=list)
+    reads: list[str] = field(default_factory=list)
+
+    async def search(self, query, *, topic="general", max_results=6):
+        from thalamus.providers.search import SearchOutcome
+
+        if self.fail:
+            raise self.fail
+        self.searches.append((query, topic))
+        return SearchOutcome(query=query, results=list(self.results)[:max_results], latency_ms=120)
+
+    async def read(self, url):
+        from thalamus.providers.search import SearchOutcome, WebResult
+
+        self.reads.append(url)
+        return SearchOutcome(query=url, results=[WebResult("Shared page", url, "Full text of the shared page.")])

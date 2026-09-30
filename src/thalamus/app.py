@@ -29,6 +29,7 @@ from thalamus.core.memory_store import MemoryStore
 from thalamus.health import Check, explain, run_checks
 from thalamus.providers.claude import WORKSPACE_ENV, ClaudeProvider, make_client
 from thalamus.providers.jev import JevProvider
+from thalamus.providers.search import SEARCH_KEY_ENV, TavilySearch
 
 ANTHROPIC_ENV = "ANTHROPIC_API_KEY"
 TOKEN_HEADER = "x-thalamus-token"
@@ -42,6 +43,7 @@ class SetupRequest(BaseModel):
     typesafe_key: str = ""
     anthropic_key: str = ""
     workspace_id: str = ""
+    tavily_key: str = ""
 
 
 class ChatRequest(BaseModel):
@@ -59,8 +61,10 @@ async def check_keys(keys: SetupRequest, settings: Settings) -> list[Check]:
         settings.models,
         client=make_client(api_key=anthropic_key or None, workspace_id=keys.workspace_id.strip() or None),
     )
+    tavily_key = keys.tavily_key.strip() or os.environ.get(SEARCH_KEY_ENV, "")
+    search = TavilySearch(api_key=tavily_key, depth=settings.web.depth) if tavily_key else None
     try:
-        return await run_checks(jev, cortex, settings.models.jev)
+        return await run_checks(jev, cortex, settings.models.jev, search)
     finally:
         await jev.aclose()
         await cortex.aclose()
@@ -73,6 +77,7 @@ def serialize(response: Response) -> dict:
         "path": response.path,
         "context": response.context,
         "cost_usd": response.cost_usd,
+        "sources": response.sources,
         "modulators": response.modulators,
         "trace": [asdict(event) for event in response.trace.events],
     }
@@ -85,6 +90,7 @@ def key_status() -> dict:
         "typesafe": typesafe,
         "anthropic": anthropic,
         "workspace": bool(os.environ.get(WORKSPACE_ENV, "").strip()),
+        "web": bool(os.environ.get(SEARCH_KEY_ENV, "").strip()),
         "ready": typesafe and anthropic,
     }
 
@@ -149,11 +155,15 @@ def create_app(
         checks = await checker(keys, settings)
         ok = all(check.ok for check in checks)
         if ok:
-            updates = {WORKSPACE_ENV: keys.workspace_id}
+            updates = {}
+            if keys.workspace_id.strip():  # blank means "keep what's saved", like the key fields
+                updates[WORKSPACE_ENV] = keys.workspace_id
             if keys.typesafe_key.strip():
                 updates[JEV_KEY_ENV] = keys.typesafe_key
             if keys.anthropic_key.strip():
                 updates[ANTHROPIC_ENV] = keys.anthropic_key
+            if keys.tavily_key.strip():
+                updates[SEARCH_KEY_ENV] = keys.tavily_key
             save_env(updates, env_path)
             async with lock:
                 await reset_brain()

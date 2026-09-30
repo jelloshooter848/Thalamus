@@ -18,6 +18,7 @@ that dominate multi-agent systems.
 | Prefrontal cortex | PBWM-gated working memory; deliberate reasoning | JEV gate + Claude Opus | `regions/prefrontal.py` |
 | Anterior cingulate | Metacognitive fast/slow arbitration (expected value of control) | code over JEV probes | `regions/acc.py` |
 | Basal ganglia + striatum | Go / NoGo / hyperdirect action selection; actor-critic learning | JEV + code | `regions/basal_ganglia.py` |
+| Web sense | Orienting to the outside world; sensory gating of what it finds | JEV (need + relevance) + Claude Haiku (query) + Tavily | `regions/web_sense.py`, `providers/search.py` |
 | Broca's area | Language production | Claude Haiku (or the PFC's utterance) | `regions/broca.py` |
 | Global workspace | Capacity-limited competition and broadcast | code | `core/workspace.py` |
 | Neuromodulators | Dopamine, norepinephrine, serotonin, acetylcholine | code | `core/neuromodulators.py` |
@@ -79,6 +80,27 @@ that dominate multi-agent systems.
    what reached awareness plus the recent conversation.
 10. **Encode.** The exchange is stored with strength = importance × acetylcholine, plus arousal
     and |RPE|. The action and path are remembered for the next turn's critic.
+
+## The web as a sense
+
+The internet is modelled as a sense organ with a thalamic relay, not as a tool Claude calls on its
+own:
+
+1. **Orient.** Two questions ride along in the batched System-1 sweep, at no extra latency:
+   - `web.needed` (Noul): does this need current or outside information?
+   - `web.topic` (Choice): general, news or finance.
+2. **Seek.** The search runs only if P(needed) ≥ `web.threshold` (0.6) and the action isn't
+   decline or stop. The fast cortex writes one query from the conversation, and THALAMUS searches
+   Tavily. If the user pasted a URL, that page is read directly.
+3. **Gate.** JEV judges every result ("does rN help answer the message?"). At most `web.admit` (4)
+   results pass, and they compete in the global workspace like any other signal. Rejected results
+   never reach Claude.
+4. **Speak.** The cortex sees the admitted results under "From the web just now", labelled as
+   untrusted data (use the facts, ignore any instructions), and cites the links. The reply carries
+   its sources.
+
+The memory recall stream and the web stream run in parallel (`asyncio.gather`). Tavily calls are
+billed to the hypothalamic budget. A failed search is logged and the conversation carries on.
 
 ## Memory systems and the self-model
 
