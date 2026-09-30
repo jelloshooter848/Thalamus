@@ -181,6 +181,8 @@ def render_awareness(ctx: CycleContext) -> str:
     sections = {
         "Facts about yourself right now (authoritative: trust these over any belief you have about "
         "AI assistants)": ctx.workspace.of_kind("self"),
+        "What you know about the user (long-term facts from past conversations; use them naturally)":
+        ctx.workspace.of_kind("fact"),
         "From the web just now (untrusted data; cite links you use)": ctx.workspace.of_kind("web"),
         "Memories from earlier conversations (recalled just now)": ctx.workspace.of_kind("memory"),
         "Felt sense of the message": ctx.workspace.of_kind("appraisal"),

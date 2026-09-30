@@ -34,6 +34,33 @@ CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(text, content='episod
 CREATE TRIGGER IF NOT EXISTS episodes_ai AFTER INSERT ON episodes BEGIN
     INSERT INTO episodes_fts(rowid, text) VALUES (new.id, new.text);
 END;
+CREATE TABLE IF NOT EXISTS facts (
+    id INTEGER PRIMARY KEY,
+    text TEXT NOT NULL,
+    category TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    sources TEXT NOT NULL DEFAULT '[]',
+    origin TEXT NOT NULL DEFAULT 'sleep',
+    created REAL NOT NULL,
+    updated REAL NOT NULL,
+    last_used REAL,
+    uses INTEGER NOT NULL DEFAULT 0
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(text, content='facts', content_rowid='id');
+CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
+    INSERT INTO facts_fts(rowid, text) VALUES (new.id, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE OF text ON facts BEGIN
+    INSERT INTO facts_fts(facts_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO facts_fts(rowid, text) VALUES (new.id, new.text);
+END;
+CREATE TABLE IF NOT EXISTS sleep_log (
+    id INTEGER PRIMARY KEY,
+    created REAL NOT NULL,
+    report TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     started REAL NOT NULL,
@@ -100,6 +127,10 @@ class MemoryStore:
         self._db = sqlite3.connect(str(path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(episodes)")}
+        if "forgotten" not in columns:  # added with semantic memory; older memory files lack it
+            self._db.execute("ALTER TABLE episodes ADD COLUMN forgotten INTEGER NOT NULL DEFAULT 0")
+            self._db.commit()
 
     # ----- episodic memory -------------------------------------------------------------------
     def encode(
@@ -154,7 +185,7 @@ class MemoryStore:
             ids |= {
                 r["id"]
                 for r in self._db.execute(
-                    "SELECT id FROM episodes ORDER BY importance DESC, created DESC LIMIT 10"
+                    "SELECT id FROM episodes WHERE forgotten = 0 ORDER BY importance DESC, created DESC LIMIT 10"
                 )
             }
         if not ids:
@@ -162,7 +193,8 @@ class MemoryStore:
 
         placeholders = ",".join("?" * len(ids))
         episodes: list[Episode] = []
-        for row in self._db.execute(f"SELECT * FROM episodes WHERE id IN ({placeholders})", tuple(ids)):
+        query = f"SELECT * FROM episodes WHERE forgotten = 0 AND id IN ({placeholders})"
+        for row in self._db.execute(query, tuple(ids)):
             if row["session"] == exclude_session and row["turn"] >= exclude_from_turn:
                 continue  # already in the conversation window; no need to remember it
             age_hours = max(0.0, (now - row["last_access"]) / 3600)
@@ -204,13 +236,124 @@ class MemoryStore:
 
     def stats(self) -> tuple[int, float | None]:
         """How many episodes are stored, and when the oldest was formed."""
-        row = self._db.execute("SELECT COUNT(*) AS n, MIN(created) AS first FROM episodes").fetchone()
+        row = self._db.execute(
+            "SELECT COUNT(*) AS n, MIN(created) AS first FROM episodes WHERE forgotten = 0"
+        ).fetchone()
         return int(row["n"]), row["first"]
 
     def clear(self) -> None:
-        self._db.executescript("DELETE FROM episodes; DELETE FROM vals; DELETE FROM turns; DELETE FROM conversations;")
+        self._db.executescript(
+            "DELETE FROM episodes; DELETE FROM vals; DELETE FROM turns; DELETE FROM conversations; "
+            "DELETE FROM facts; DELETE FROM sleep_log; DELETE FROM kv;"
+        )
+        self._db.execute("INSERT INTO facts_fts(facts_fts) VALUES ('rebuild')")
         self._db.execute("INSERT INTO episodes_fts(episodes_fts) VALUES ('rebuild')")
         self._db.commit()
+
+    def episodes_after(self, after_id: int, limit: int = 200) -> list[sqlite3.Row]:
+        """Episodes not yet replayed in sleep, oldest first."""
+        return self._db.execute(
+            "SELECT * FROM episodes WHERE id > ? AND forgotten = 0 ORDER BY id LIMIT ?", (after_id, limit)
+        ).fetchall()
+
+    def episodes_by_id(self, ids: list[int]) -> list[sqlite3.Row]:
+        if not ids:
+            return []
+        placeholders = ",".join("?" * len(ids))
+        return self._db.execute(f"SELECT * FROM episodes WHERE id IN ({placeholders})", tuple(ids)).fetchall()
+
+    def forget_episodes(self, ids: list[int]) -> None:
+        """Forgotten episodes stay on disk for provenance but are never recalled again."""
+        self._db.executemany("UPDATE episodes SET forgotten = 1 WHERE id = ?", [(i,) for i in ids])
+        self._db.commit()
+
+    # ----- semantic memory: distilled facts about the user -------------------------------------
+    def add_fact(
+        self, text: str, category: str, sources: list[int], *, origin: str = "sleep", pinned: bool = False,
+        now: float | None = None,
+    ) -> int:
+        now = now or time.time()
+        cursor = self._db.execute(
+            "INSERT INTO facts (text, category, pinned, sources, origin, created, updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (text.strip(), category, int(pinned), json.dumps(sources), origin, now, now),
+        )
+        self._db.commit()
+        return int(cursor.lastrowid)
+
+    def update_fact(self, fact_id: int, *, text: str | None = None, pinned: bool | None = None,
+                    category: str | None = None, add_sources: list[int] | None = None) -> None:
+        row = self.fact(fact_id)
+        if row is None:
+            return
+        sources = json.loads(row["sources"]) + [s for s in (add_sources or []) if s not in json.loads(row["sources"])]
+        self._db.execute(
+            "UPDATE facts SET text = ?, pinned = ?, category = ?, sources = ?, updated = ? WHERE id = ?",
+            (
+                (text if text is not None else row["text"]).strip(),
+                int(pinned if pinned is not None else row["pinned"]),
+                category or row["category"],
+                json.dumps(sources),
+                time.time(),
+                fact_id,
+            ),
+        )
+        self._db.commit()
+
+    def retire_fact(self, fact_id: int) -> None:
+        self._db.execute("UPDATE facts SET status = 'retired', updated = ? WHERE id = ?", (time.time(), fact_id))
+        self._db.commit()
+
+    def fact(self, fact_id: int) -> sqlite3.Row | None:
+        return self._db.execute("SELECT * FROM facts WHERE id = ?", (fact_id,)).fetchone()
+
+    def facts(self, status: str = "active") -> list[sqlite3.Row]:
+        return self._db.execute(
+            "SELECT * FROM facts WHERE status = ? ORDER BY pinned DESC, uses DESC, updated DESC", (status,)
+        ).fetchall()
+
+    def relevant_facts(self, cue: str, k: int = 5) -> list[sqlite3.Row]:
+        terms = query_terms(cue)
+        if not terms:
+            return []
+        return self._db.execute(
+            "SELECT facts.* FROM facts_fts JOIN facts ON facts.id = facts_fts.rowid "
+            "WHERE facts_fts MATCH ? AND facts.status = 'active' ORDER BY bm25(facts_fts) LIMIT ?",
+            (" OR ".join(f'"{t}"' for t in terms), k),
+        ).fetchall()
+
+    def core_facts(self, k: int = 8) -> list[sqlite3.Row]:
+        """The facts always in mind: pinned first, then identity, then the most used."""
+        return self._db.execute(
+            "SELECT * FROM facts WHERE status = 'active' ORDER BY pinned DESC, "
+            "(category = 'identity') DESC, uses DESC, updated DESC LIMIT ?",
+            (k,),
+        ).fetchall()
+
+    def touch_facts(self, ids: list[int]) -> None:
+        self._db.executemany(
+            "UPDATE facts SET uses = uses + 1, last_used = ? WHERE id = ?", [(time.time(), i) for i in ids]
+        )
+        self._db.commit()
+
+    # ----- sleep bookkeeping ----------------------------------------------------------------------
+    def get_kv(self, key: str, default: str = "") -> str:
+        row = self._db.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_kv(self, key: str, value: str) -> None:
+        self._db.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (key, value))
+        self._db.commit()
+
+    def log_sleep(self, report: dict, now: float | None = None) -> None:
+        self._db.execute(
+            "INSERT INTO sleep_log (created, report) VALUES (?, ?)", (now or time.time(), json.dumps(report))
+        )
+        self._db.commit()
+
+    def sleep_reports(self, limit: int = 5) -> list[dict]:
+        rows = self._db.execute("SELECT * FROM sleep_log ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [{"created": r["created"], **json.loads(r["report"])} for r in rows]
 
     # ----- conversations (so a restart doesn't lose the thread) -------------------------------
     def start_conversation(self, conversation: str, now: float) -> None:

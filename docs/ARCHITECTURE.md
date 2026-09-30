@@ -103,6 +103,22 @@ own:
 The memory recall stream and the web stream run in parallel (`asyncio.gather`). Tavily calls are
 billed to the hypothalamic budget. A failed search is logged and the conversation carries on.
 
+## Semantic memory and sleep
+
+Episodes are raw experience. **Facts** are what THALAMUS *knows* about you, distilled from them:
+
+1. **Sleep** (`regions/sleep.py`). Consolidation runs after 30 idle minutes (`memory.sleep_after_idle_minutes`), from **Sleep now** in the Memory window, or with `thalamus sleep`.
+   - Episodes since the last sleep are replayed.
+   - The memory model (Claude Sonnet, structured output) proposes to add, update or retire facts. Each proposal must cite the user's own messages.
+2. **Verification.** JEV judges every proposal against its evidence ("supported by what the user actually said, not guessed?"). Only proposals with P ≥ 0.7 are written. That keeps invented memories out of long-term knowledge.
+3. **Recall** (`regions/semantic.py`). Core facts are always in awareness: pinned first, then identity, then the most used. Facts that match the message are added too.
+4. **Reconsolidation.** A JEV question in every sweep detects "forget that" or "that's wrong, it's actually…". JEV then picks which facts and episodes are meant:
+   - forgotten items are retired or marked forgotten, and are never recalled again;
+   - corrections retire the old fact and store the corrected one.
+
+   The change is put into awareness so the reply confirms it.
+5. **Your control.** The Memory window's "What I know about you" tab lets you view, edit, pin, delete and add facts. It also shows the last sleep report, including rejected proposals.
+
 ## Memory systems and the self-model
 
 | Store | Brain analogue | Lifetime | Visible in |

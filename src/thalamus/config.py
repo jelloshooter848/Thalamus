@@ -32,6 +32,9 @@ class Models:
     # Prefrontal cortex: slow, deliberate System-2 reasoning.
     deep: str = "claude-opus-5-5"
     deep_effort: str = "high"
+    # Sleep consolidation: careful bulk extraction, run in the background.
+    memory: str = "claude-sonnet-5-5"
+    memory_effort: str = "medium"
 
 
 @dataclass
@@ -73,6 +76,12 @@ class Budget:
 class Memory:
     path: str = "~/.thalamus/memory.db"
     recall_k: int = 5
+    core_facts: int = 8  # facts always in mind (pinned, identity, most used)
+    relevant_facts: int = 5  # facts recalled because they match the message
+    sleep_after_idle_minutes: float = 30.0  # consolidate after this long without a message
+    sleep_min_new: int = 2  # at least this many new user messages before sleeping
+    sleep_batch: int = 120  # most episodes replayed per sleep
+    verify_threshold: float = 0.7  # JEV's P(supported by evidence) needed to store a fact
     # Hours for an unrehearsed, unimportant memory to fall to ~37% retention.
     base_stability_hours: float = 72.0
 

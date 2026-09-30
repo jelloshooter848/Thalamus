@@ -64,7 +64,7 @@ class Generation:
     refused: bool = False
 
 
-Tier = Literal["fast", "deep"]
+Tier = Literal["fast", "deep", "memory"]
 
 
 TextSink = Callable[[str], Awaitable[None]]  # receives reply text as it streams
@@ -80,3 +80,9 @@ class LanguageProvider(Protocol):
         max_tokens: int,
         on_text: TextSink | None = None,
     ) -> Generation: ...
+
+    async def generate_json(
+        self, *, tier: Tier, system: str, messages: list[dict[str, Any]], schema: dict, max_tokens: int
+    ) -> tuple[dict, Generation]:
+        """A reply guaranteed to match `schema` (structured output), parsed."""
+        ...

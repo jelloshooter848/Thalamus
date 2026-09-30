@@ -31,7 +31,9 @@ from thalamus.regions.broca import Broca
 from thalamus.regions.hippocampus import Hippocampus
 from thalamus.regions.prefrontal import PrefrontalCortex, buffer_window
 from thalamus.regions.self_model import SelfModel
+from thalamus.regions.semantic import Reconsolidation, SemanticMemory
 from thalamus.regions.sensory_cortex import SensoryCortex
+from thalamus.regions.sleep import consolidate, pending_episodes
 from thalamus.regions.thalamus import Thalamus
 from thalamus.regions.web_sense import WebSense
 
@@ -83,6 +85,8 @@ class Brain:
         self.broca = Broca()
         self.web = WebSense(search)
         self.self_model = SelfModel()
+        self.semantic = SemanticMemory()
+        self.reconsolidation = Reconsolidation()
         self.subcortical: list[BrainRegion] = [
             self.thalamus,
             self.amygdala,
@@ -91,6 +95,7 @@ class Brain:
             self.basal_ganglia,
             self.web,
             self.self_model,
+            self.reconsolidation,
         ]
 
         self._turn = 0
@@ -212,6 +217,14 @@ class Brain:
 
         ctx.action = self.basal_ganglia.select(ctx)
 
+        # Reconsolidation first, so anything the user asked to forget can't be recalled below.
+        edit = await self.reconsolidation.edit(ctx, self.jev, self.cortex)
+        for decision in edit.decisions:
+            self._account_jev(decision, trace, "memory_edit", len(decision.nouls))
+        for generation in edit.generations:
+            self._account_llm(generation)
+        self.semantic.recall(ctx)
+
         # Two parallel streams feed awareness: memories recalled from the past, and the web.
         # Each is gated by JEV before it may compete for the global workspace.
         candidates = self.hippocampus.recall(ctx)
@@ -297,6 +310,34 @@ class Brain:
             latency_ms=round(decision.latency_ms),
             cost_usd=round(cost, 7),
         )
+
+    def sleep_due(self) -> bool:
+        """Idle long enough, with new things said since the last sleep."""
+        if self.last_activity is None:
+            return pending_episodes(self.memory) >= self.settings.memory.sleep_min_new
+        idle = self.clock() - self.last_activity
+        return (
+            idle >= self.settings.memory.sleep_after_idle_minutes * 60
+            and pending_episodes(self.memory) >= self.settings.memory.sleep_min_new
+        )
+
+    async def sleep(self, trigger: str = "manual", force: bool = False) -> dict:
+        """Consolidate recent episodes into long-term facts (see regions/sleep.py)."""
+        before = dict(self.homeostasis.by_service)
+        result = await consolidate(self.memory, self.settings, self.cortex, self.jev, trigger=trigger, force=force)
+        trace = CycleTrace(turn=0)
+        for generation in result.generations:
+            self._account_llm(generation)
+        for decision in result.decisions:
+            self._account_jev(decision, trace, "sleep_verify", len(decision.nouls))
+        spent = {
+            k: v - before.get(k, 0.0) for k, v in self.homeostasis.by_service.items() if v - before.get(k, 0.0) > 0
+        }
+        self.memory.record_costs("sleep", spent, self.clock())
+        report = {**result.report, "cost_usd": round(sum(spent.values()), 6)}
+        if result.generations:
+            self.memory.log_sleep(report, self.clock())
+        return report
 
     def _account_llm(self, generation: Generation) -> None:
         self.homeostasis.record(generation.model, generation.input_tokens, generation.output_tokens)

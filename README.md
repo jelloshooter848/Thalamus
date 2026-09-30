@@ -80,6 +80,12 @@ Your phone stays logged in for 90 days. Changing the passcode logs it out. Keys 
 only be changed on the PC. While phone access is on, the PC is kept awake so your phone can
 always reach it, so keep it plugged in.
 
+**It builds a picture of you.** When THALAMUS has been idle for 30 minutes, it "sleeps": it replays
+recent conversations and distils lasting facts about you (your name, where you live, your projects,
+your preferences). JEV checks every fact against what you actually said before it's saved. Open
+**Memory → What I know about you** to see, edit, pin or delete them, or say *"forget that"* or
+*"that's wrong, it's actually…"* in chat.
+
 **Conversations work like a person's.** A conversation starts fresh when you click **New
 conversation** or after 30 minutes without a message. After that, THALAMUS reaches earlier
 conversations only through its long-term memory. Use the **Memory** button to see or erase that

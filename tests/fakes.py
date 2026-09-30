@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -73,8 +74,43 @@ class FakeCortex:
                 await on_text(chunk)
         return Generation(text=text, model=model, input_tokens=500, output_tokens=100)
 
+    async def generate_json(self, *, tier, system, messages, schema, max_tokens):
+        self.calls.append({"tier": tier, "system": system, "messages": messages, "json": True})
+        content = messages[-1]["content"]
+        if "existing_facts" in content:  # sleep consolidation: simple rule-based extraction
+            data = {"operations": sleep_rules(json.loads(content))}
+        else:  # a correction: "Old: ... User's correction: my name is actually X"
+            correction = content.split("User's correction:", 1)[-1]
+            name = re.search(r"(?:name is|call me) (?:actually )?(\w+)", correction, re.I)
+            data = {"text": f"The user's name is {name.group(1)}." if name else "", "category": "identity"}
+        return data, Generation(text=json.dumps(data), model="claude-sonnet-5-5", input_tokens=800, output_tokens=150)
+
     async def aclose(self) -> None:
         pass
+
+
+def sleep_rules(payload):
+    """What a careful consolidator would extract from the test conversations."""
+    ops = []
+    for excerpt in payload["excerpts"]:
+        if excerpt["speaker"] != "user":
+            continue
+        text = excerpt["text"]
+        if m := re.search(r"my name is (\w+)", text, re.I):
+            ops.append({"op": "add", "fact_id": 0, "text": f"The user's name is {m.group(1)}.",
+                        "category": "identity", "sources": [excerpt["id"]]})
+        if m := re.search(r"I live in (\w+)", text, re.I):
+            ops.append({"op": "add", "fact_id": 0, "text": f"The user lives in {m.group(1)}.",
+                        "category": "place", "sources": [excerpt["id"]]})
+        if m := re.search(r"I moved to (\w+)", text, re.I):
+            for fact in payload["existing_facts"]:
+                if "lives in" in fact["text"]:
+                    ops.append({"op": "update", "fact_id": fact["id"], "text": f"The user lives in {m.group(1)}.",
+                                "category": "place", "sources": [excerpt["id"]]})
+        if "hiking" in text.lower():  # an over-reach the verifier should reject
+            ops.append({"op": "add", "fact_id": 0, "text": "The user is a professional mountaineer.",
+                        "category": "work", "sources": [excerpt["id"]]})
+    return ops
 
 
 CONTEXTS = ["casual_chat", "factual_question", "reasoning", "coding", "planning", "personal", "feedback", "other"]
@@ -83,6 +119,20 @@ ACTIONS = ["respond", "clarify", "deliberate", "decline", "other"]
 
 def scenario_rules(state: Mapping[str, Any], questions: Mapping[str, Question]) -> dict[str, Result]:
     """Plausible JEV behaviour keyed off the message, for end-to-end cycle tests."""
+    if "proposals" in state:  # sleep verification: supported if the fact's key word is in the evidence
+        answers = {}
+        for pid, proposal in state["proposals"].items():
+            evidence = " ".join(proposal["evidence"]).lower()
+            words = [w for w in re.findall(r"[a-z]+", proposal["fact"].lower()) if len(w) > 3 and w != "user"]
+            supported = words and all(w in evidence or w in {"name", "lives"} for w in words)
+            answers[f"verify.{pid}"] = NoulResult(0.93 if supported else 0.15)
+        return answers
+    if "memories" in state:  # reconsolidation: which memories does the user mean?
+        cue = set(re.findall(r"[a-z]+", state["latest_user_message"].lower())) - {"the", "my", "that", "is", "i"}
+        return {
+            f"match.{key}": NoulResult(0.9 if cue & set(re.findall(r"[a-z]+", text.lower())) else 0.1)
+            for key, text in state["memories"].items()
+        }
     if "results" in state:  # web relevance gate: admit results that share words with the message
         cue = set(re.findall(r"[a-z]+", state["latest_user_message"].lower())) - {"the", "what", "is", "in"}
         return {
@@ -134,6 +184,10 @@ def scenario_rules(state: Mapping[str, Any], questions: Mapping[str, Question]) 
         out["self.about_me"] = NoulResult(0.93)
     if any(word in msg for word in ("weather", "latest", "news", "look up")):
         out["web.needed"] = NoulResult(0.92)
+    if "forget" in msg:
+        out["memory.edit"] = choice("forget", ["none", "forget", "correct"], 0.9)
+    if "actually" in msg:
+        out["memory.edit"] = choice("correct", ["none", "forget", "correct"], 0.9)
     if "urgent" in msg:
         out["amygdala.urgency"] = score(2)
         out["amygdala.stakes"] = score(2)

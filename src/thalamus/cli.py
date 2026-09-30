@@ -128,6 +128,31 @@ def doctor(config: Optional[Path] = ConfigOption) -> None:
         raise typer.Exit(code=1)
 
 
+@app.command()
+def sleep(config: Optional[Path] = ConfigOption) -> None:
+    """Consolidate recent conversations into long-term facts now."""
+    settings = _settings(config)
+    brain = _brain(settings)
+
+    async def run() -> dict:
+        try:
+            return await brain.sleep(trigger="manual", force=True)
+        finally:
+            await brain.jev.aclose()
+            await brain.cortex.aclose()
+            brain.memory.close()
+
+    report = asyncio.run(run())
+    for label in ("added", "retired"):
+        for text in report.get(label, []):
+            console.print(f"[green]{label}[/] {text}")
+    for change in report.get("updated", []):
+        console.print(f"[yellow]updated[/] {change['from']} → {change['to']}")
+    for rejected in report.get("rejected", []):
+        console.print(f"[dim]rejected (unsupported, p={rejected['p']}): {rejected['text']}[/]")
+    console.print(report.get("note") or f"Done. Cost ${report.get('cost_usd', 0):.4f}")
+
+
 @memory_app.command("list")
 def memory_list(limit: int = 20, config: Optional[Path] = ConfigOption) -> None:
     """Show recent episodes and learned values."""

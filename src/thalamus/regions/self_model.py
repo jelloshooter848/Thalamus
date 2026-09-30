@@ -51,6 +51,7 @@ class SelfModel(BrainRegion):
         """True, current facts about this mind, computed from the running system."""
         models = ctx.settings.models
         episodes, first = ctx.memory.stats()
+        known = len(ctx.memory.facts())
         facts = []
         if ctx.web_enabled:
             facts.append(
@@ -73,7 +74,9 @@ class SelfModel(BrainRegion):
         if episodes:
             facts.append(
                 f"Long-term memory: YES. {episodes} remembered messages stored on this computer, the "
-                f"earliest from {_when(first)}. Recall is selective, so you may not remember everything."
+                f"earliest from {_when(first)}, plus {known} distilled facts about the user (consolidated "
+                "while you sleep; the user can view, edit or delete them in the Memory window). Recall is "
+                "selective, so you may not remember everything."
             )
         else:
             facts.append("Long-term memory: YES, but it's empty so far. Nothing has been stored yet.")

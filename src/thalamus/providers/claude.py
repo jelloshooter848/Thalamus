@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Any
@@ -38,16 +39,7 @@ class ClaudeProvider:
         max_tokens: int,
         on_text: TextSink | None = None,
     ) -> Generation:
-        model = self._models.deep if tier == "deep" else self._models.fast
-        params: dict[str, Any] = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": messages,
-        }
-        if tier == "deep":
-            # Thinking is adaptive by default on current Opus; effort sets its depth.
-            params["output_config"] = {"effort": self._models.deep_effort}
+        model, params = self._params(tier, system, messages, max_tokens)
 
         started = time.perf_counter()
         if model.startswith(_FALLBACK_PREFIXES):
@@ -72,6 +64,41 @@ class ClaudeProvider:
             latency_ms=latency_ms,
             refused=response.stop_reason == "refusal",
         )
+
+    async def generate_json(
+        self, *, tier: Tier, system: str, messages: list[dict[str, Any]], schema: dict, max_tokens: int
+    ) -> tuple[dict, Generation]:
+        model, params = self._params(tier, system, messages, max_tokens)
+        params.setdefault("output_config", {})["format"] = {"type": "json_schema", "schema": schema}
+        started = time.perf_counter()
+        if model.startswith(_FALLBACK_PREFIXES):
+            response = await self._client.beta.messages.create(
+                betas=[_FALLBACK_BETA], fallbacks="default", **params
+            )
+        else:
+            response = await self._client.messages.create(**params)
+        text = next((block.text for block in response.content if block.type == "text"), "{}")
+        generation = Generation(
+            text=text,
+            model=response.model,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            latency_ms=(time.perf_counter() - started) * 1000,
+            refused=response.stop_reason == "refusal",
+        )
+        return (json.loads(text) if not generation.refused else {}), generation
+
+    def _params(
+        self, tier: Tier, system: str, messages: list[dict[str, Any]], max_tokens: int
+    ) -> tuple[str, dict[str, Any]]:
+        model = {"deep": self._models.deep, "memory": self._models.memory}.get(tier, self._models.fast)
+        params: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "system": system, "messages": messages}
+        # Thinking is adaptive by default on current Opus/Sonnet; effort sets its depth.
+        if tier == "deep":
+            params["output_config"] = {"effort": self._models.deep_effort}
+        elif tier == "memory":
+            params["output_config"] = {"effort": self._models.memory_effort}
+        return model, params
 
     async def aclose(self) -> None:
         await self._client.close()
