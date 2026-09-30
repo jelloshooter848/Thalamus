@@ -18,6 +18,7 @@ that dominate multi-agent systems.
 | Prefrontal cortex | PBWM-gated working memory; deliberate reasoning | JEV gate + Claude Opus | `regions/prefrontal.py` |
 | Anterior cingulate | Metacognitive fast/slow arbitration (expected value of control) | code over JEV probes | `regions/acc.py` |
 | Basal ganglia + striatum | Go / NoGo / hyperdirect action selection; actor-critic learning | JEV + code | `regions/basal_ganglia.py` |
+| Medial prefrontal cortex (self-model) | Self-referential processing: true, current facts about its own abilities | JEV (is this about me?) + code | `regions/self_model.py` |
 | Web sense | Orienting to the outside world; sensory gating of what it finds | JEV (need + relevance) + Claude Haiku (query) + Tavily | `regions/web_sense.py`, `providers/search.py` |
 | Broca's area | Language production | Claude Haiku (or the PFC's utterance) | `regions/broca.py` |
 | Global workspace | Capacity-limited competition and broadcast | code | `core/workspace.py` |
@@ -111,6 +112,13 @@ billed to the hypothalamic budget. A failed search is logged and the conversatio
 | Episodic memory | Hippocampus | Permanent (append-only), with a forgetting curve for recall | Memory button |
 | Learned values | Striatum | Permanent | Memory button |
 | Neuromodulator levels | Brainstem nuclei | Relax toward baseline every cycle | Both tabs |
+
+When JEV judges a message is about THALAMUS itself (its abilities, internet access, memory,
+knowledge), the **self-model region** computes the true facts from the running system: whether
+search is configured, how many memories are stored, which models think. It posts them as the most
+salient signal of the cycle. This matters because a model's trained-in beliefs ("I can't browse",
+"my knowledge ends at my cutoff") can override a single sentence in a long prompt, especially on the
+fast path.
 
 The cortex's prompt carries an accurate **self-model** of these systems (`SELF_MODEL` in
 `regions/prefrontal.py`), plus the current time. Without it, Claude falls back on a generic

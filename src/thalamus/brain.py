@@ -30,6 +30,7 @@ from thalamus.regions.basal_ganglia import BasalGanglia
 from thalamus.regions.broca import Broca
 from thalamus.regions.hippocampus import Hippocampus
 from thalamus.regions.prefrontal import PrefrontalCortex, buffer_window
+from thalamus.regions.self_model import SelfModel
 from thalamus.regions.sensory_cortex import SensoryCortex
 from thalamus.regions.thalamus import Thalamus
 from thalamus.regions.web_sense import WebSense
@@ -80,6 +81,7 @@ class Brain:
         self.prefrontal = PrefrontalCortex()
         self.broca = Broca()
         self.web = WebSense(search)
+        self.self_model = SelfModel()
         self.subcortical: list[BrainRegion] = [
             self.thalamus,
             self.amygdala,
@@ -87,6 +89,7 @@ class Brain:
             self.acc,
             self.basal_ganglia,
             self.web,
+            self.self_model,
         ]
 
         self._turn = 0

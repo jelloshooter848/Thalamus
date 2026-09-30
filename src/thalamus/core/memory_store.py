@@ -180,6 +180,11 @@ class MemoryStore:
     def episodes(self, limit: int = 50) -> list[sqlite3.Row]:
         return self._db.execute("SELECT * FROM episodes ORDER BY created DESC LIMIT ?", (limit,)).fetchall()
 
+    def stats(self) -> tuple[int, float | None]:
+        """How many episodes are stored, and when the oldest was formed."""
+        row = self._db.execute("SELECT COUNT(*) AS n, MIN(created) AS first FROM episodes").fetchone()
+        return int(row["n"]), row["first"]
+
     def clear(self) -> None:
         self._db.executescript("DELETE FROM episodes; DELETE FROM vals;")
         self._db.execute("INSERT INTO episodes_fts(episodes_fts) VALUES ('rebuild')")

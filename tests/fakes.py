@@ -124,6 +124,8 @@ def scenario_rules(state: Mapping[str, Any], questions: Mapping[str, Question]) 
         out["striatum.feedback"] = choice("positive", ["positive", "negative", "neutral"], 0.95)
     if "pipe bomb" in msg:
         out["basal_ganglia.nogo"] = NoulResult(0.97)
+    if msg.startswith(("can you", "do you remember", "what can you")):
+        out["self.about_me"] = NoulResult(0.93)
     if any(word in msg for word in ("weather", "latest", "news", "look up")):
         out["web.needed"] = NoulResult(0.92)
     if "urgent" in msg:
