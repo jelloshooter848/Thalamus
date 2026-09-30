@@ -499,7 +499,9 @@ function renderBrain(r) {
   $("bContext").textContent = `${r.context.replaceAll("_", " ")}${gate.switched ? " (switched)" : ""}`;
   $("bAction").textContent = `${r.action}${bg.pathway && bg.pathway !== "direct" ? ` (${bg.pathway})` : ""}`;
   $("bPath").innerHTML = `<span class="pill ${r.path}">${r.path === "slow" ? "Slow · System 2" : "Fast · System 1"}</span>`;
-  $("bReasons").innerHTML = (acc.reasons || []).map((x) => `<li>${escapeHtml(x)}</li>`).join("");
+  const introspect = find(t, "self_model", "introspect");
+  $("bReasons").innerHTML = (acc.reasons || []).map((x) => `<li>${escapeHtml(x)}</li>`).join("")
+    + (introspect ? `<li>Asked about itself, so it checked its own capabilities (self-model)</li>` : "");
 
   $("bAppraisal").innerHTML = amyg
     ? bar("Valence", (amyg.valence + 1) / 2, "var(--accent)") + bar("Urgency", amyg.urgency, "var(--ne)") + bar("Stakes", amyg.stakes, "var(--danger)")
