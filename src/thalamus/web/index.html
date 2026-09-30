@@ -97,6 +97,16 @@
   .pill { font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; }
   .pill.fast { color: var(--fast); background: color-mix(in srgb, var(--fast) 14%, transparent); }
   .pill.slow { color: var(--slow); background: color-mix(in srgb, var(--slow) 16%, transparent); }
+  .pill.web { color: var(--ht); background: color-mix(in srgb, var(--ht) 14%, transparent); }
+  .sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; white-space: normal; }
+  .sources a { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); text-decoration: none; }
+  .sources a:hover { color: var(--accent); border-color: var(--accent); }
+  .results { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; font-size: 13px; }
+  .results li { padding: 7px 10px; border-radius: 8px; background: var(--panel-2); overflow-wrap: anywhere; }
+  .results li.in::before { content: "✓ "; color: var(--fast); font-weight: 700; }
+  .results li.out { opacity: .7; }
+  .results li.out::before { content: "✗ "; color: var(--danger); font-weight: 700; }
+  .results a { color: inherit; }
   .typing { display: inline-flex; gap: 4px; }
   .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
   .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
@@ -190,6 +200,12 @@
           <div class="input-wrap"><input id="anthropic" type="password" spellcheck="false" placeholder="sk-ant-…"><button class="btn reveal" type="button">Show</button></div>
           <div class="help saved hidden" data-saved="anthropic">A key is already saved. Leave blank to keep it.</div>
         </div>
+        <div class="field" data-field="tavily">
+          <label for="tavily"><span>Tavily API key (web search) <span class="muted">(optional)</span></span> <a href="https://app.tavily.com" target="_blank" rel="noopener">Get a key ↗</a></label>
+          <div class="input-wrap"><input id="tavily" type="password" spellcheck="false" placeholder="tvly-…"><button class="btn reveal" type="button">Show</button></div>
+          <div class="help">Lets THALAMUS look things up online when JEV judges a message needs it. Free tier available.</div>
+          <div class="help saved hidden" data-saved="web">A key is already saved. Leave blank to keep it.</div>
+        </div>
         <div class="field" data-field="workspace">
           <label for="workspace"><span>Workspace ID <span class="muted">(optional)</span></span> <a href="https://console.anthropic.com/settings/workspaces" target="_blank" rel="noopener">Find it ↗</a></label>
           <div class="input-wrap"><input id="workspace" type="text" spellcheck="false" placeholder="wrkspc_…"></div>
@@ -242,6 +258,10 @@
         <div class="section">
           <h3>Neuromodulators</h3>
           <div id="bMods"></div>
+        </div>
+        <div class="section" id="bWebSection">
+          <h3>Web (senses)</h3>
+          <div id="bWeb"></div>
         </div>
         <div class="section">
           <h3>Memories in awareness</h3>
@@ -310,11 +330,13 @@ function show(view, status) {
   $("settingsBtn").classList.toggle("hidden", !ready);
   $("cancelSetup").classList.toggle("hidden", !(view === "setup" && ready));
   if (view === "setup" && status) {
-    for (const key of ["typesafe", "anthropic"]) {
+    for (const key of ["typesafe", "anthropic", "web"]) {
       document.querySelector(`[data-saved="${key}"]`).classList.toggle("hidden", !status[key]);
     }
     $("typesafe").placeholder = status.typesafe ? "Saved (leave blank to keep)" : "Required";
     $("anthropic").placeholder = status.anthropic ? "Saved (leave blank to keep)" : "sk-ant-…";
+    $("tavily").placeholder = status.web ? "Saved (leave blank to keep)" : "tvly-…";
+    $("workspace").placeholder = status.workspace ? "Saved (leave blank to keep)" : "wrkspc_…";
   }
   if (view === "chat") $("input").focus();
 }
@@ -345,6 +367,7 @@ $("setupForm").addEventListener("submit", async (event) => {
   $("checks").innerHTML = "";
   const result = await api("/api/setup", {
     typesafe_key: $("typesafe").value, anthropic_key: $("anthropic").value, workspace_id: $("workspace").value,
+    tavily_key: $("tavily").value,
   });
   $("saveBtn").disabled = false;
   if (result.error) { $("setupStatus").textContent = result.error.message; return; }
@@ -356,7 +379,7 @@ $("setupForm").addEventListener("submit", async (event) => {
   window.__status = result.status;
   if (result.ok) {
     $("setupStatus").textContent = "All set. Opening chat…";
-    ["typesafe", "anthropic"].forEach((id) => ($(id).value = ""));
+    ["typesafe", "anthropic", "tavily"].forEach((id) => ($(id).value = ""));
     setTimeout(() => { $("setupStatus").textContent = ""; $("checks").innerHTML = ""; show("chat", result.status); loadMind(); }, 900);
   } else {
     $("setupStatus").textContent = "Nothing was saved. Fix the item below and try again.";
@@ -377,16 +400,28 @@ function resetMessages() {
   $("messages").innerHTML = `<div class="empty" id="empty"><strong>THALAMUS is awake.</strong>Say hello. Watch the brain activity panel to see which regions fired, and the Mind tab to see what it's holding in mind.</div>`;
 }
 
-function botMeta(path, context, cost) {
+function botMeta(path, context, cost, sources) {
   const pill = `<span class="pill ${path}">${path === "slow" ? "Deliberated" : "Fast"}</span>`;
-  return `${pill}<span>${escapeHtml(context.replaceAll("_", " "))}</span><span>$${cost.toFixed(4)}</span>`;
+  const web = sources && sources.length ? `<span class="pill web">Web · ${sources.length}</span>` : "";
+  return `${pill}${web}<span>${escapeHtml(context.replaceAll("_", " "))}</span><span>$${cost.toFixed(4)}</span>`;
+}
+
+function sourceLinks(sources) {
+  if (!sources || !sources.length) return "";
+  sources = sources.filter((s) => /^https?:\/\//i.test(s.url || ""));
+  if (!sources.length) return "";
+  return `<div class="sources">${sources.map((s) => {
+    let host = s.url;
+    try { host = new URL(s.url).hostname.replace(/^www\./, ""); } catch (e) { /* keep raw */ }
+    return `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(s.title)}">${escapeHtml(host)}</a>`;
+  }).join("")}</div>`;
 }
 
 async function loadHistory() {
   const data = await api("/api/history");
   for (const turn of data.turns || []) {
     if (turn.role === "user") addMessage("user", renderText(turn.content));
-    else addMessage("bot", renderText(turn.content), turn.meta ? botMeta(turn.meta.path, turn.meta.context, turn.meta.cost_usd) : "");
+    else addMessage("bot", renderText(turn.content) + sourceLinks(turn.meta?.sources), turn.meta ? botMeta(turn.meta.path, turn.meta.context, turn.meta.cost_usd, turn.meta.sources) : "");
   }
 }
 
@@ -435,7 +470,7 @@ $("composer").addEventListener("submit", async (event) => {
     }
     return;
   }
-  addMessage("bot", renderText(result.text), botMeta(result.path, result.context, result.cost_usd));
+  addMessage("bot", renderText(result.text) + sourceLinks(result.sources), botMeta(result.path, result.context, result.cost_usd, result.sources));
   renderBrain(result);
   loadMind();
   input.focus();
@@ -472,6 +507,13 @@ function renderBrain(r) {
     : `<div class="muted">No appraisal.</div>`;
   $("bMods").innerHTML = MODS.map(([k, label, color]) => bar(label, r.modulators[k] ?? 0, color)).join("");
 
+  const web = find(t, "web", "orient")?.data;
+  const webGate = find(t, "jev", "web_gate")?.data;
+  $("bWebSection").classList.toggle("hidden", !web);
+  if (web) {
+    const results = (web.results || []).map((x) => `<li class="${x.admitted ? "in" : "out"}">${escapeHtml(x.title || "(untitled)")} <span class="muted">· ${Math.round(x.p * 100)}%</span></li>`).join("");
+    $("bWeb").innerHTML = `<dl class="kv"><dt>Decision</dt><dd>${escapeHtml(web.decision)}</dd>${web.query ? `<dt>Query</dt><dd>${escapeHtml(web.query)}</dd>` : ""}${web.latency_ms ? `<dt>Search time</dt><dd>${web.latency_ms} ms</dd>` : ""}${webGate ? `<dt>Relevance gate</dt><dd>${webGate.latency_ms} ms</dd>` : ""}</dl><p class="note" style="margin-top:6px">${escapeHtml(web.reason)}</p>${results ? `<ul class="results">${results}</ul>` : ""}`;
+  }
   const memories = (broadcast.contents || []).filter((c) => c.startsWith("memory:")).map((c) => c.slice(7));
   $("bMemories").innerHTML = memories.length
     ? memories.map((m) => `<li>${escapeHtml(m)}…</li>`).join("")

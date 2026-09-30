@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 import anthropic
+from tavily import errors as tavily_errors
 from typesafe_sdk import (
     Noul,
     TypeSafeAPIConnectionError,
@@ -20,6 +21,7 @@ from typesafe_sdk import (
 
 from thalamus.config import MissingJevKeyError
 from thalamus.providers.base import DecisionProvider, LanguageProvider
+from thalamus.providers.search import SearchProvider
 
 
 @dataclass
@@ -53,6 +55,15 @@ def explain(error: Exception) -> Problem:
     if isinstance(error, TypeSafeAPIError | TypeSafeError):
         return Problem(f"JEV returned an error: {error}")
 
+    if isinstance(error, tavily_errors.InvalidAPIKeyError | tavily_errors.MissingAPIKeyError):
+        return Problem("Tavily rejected the API key.", "Check the key at app.tavily.com and paste it again.", "tavily")
+    if isinstance(error, tavily_errors.UsageLimitExceededError):
+        return Problem("The Tavily plan's search limit is used up.", "Check your usage at app.tavily.com.", "tavily")
+    if isinstance(error, tavily_errors.ForbiddenError):
+        return Problem("Tavily refused the request.", "Check the key's permissions at app.tavily.com.", "tavily")
+    if isinstance(error, tavily_errors.BadRequestError | tavily_errors.TimeoutError):
+        return Problem(f"The web search failed: {error}")
+
     if isinstance(error, anthropic.AuthenticationError):
         return Problem(
             "Anthropic rejected the API key.", "Create a key at console.anthropic.com and paste it again.", "anthropic"
@@ -79,7 +90,9 @@ def explain(error: Exception) -> Problem:
     return Problem(f"Unexpected error: {error}")
 
 
-async def run_checks(jev: DecisionProvider, cortex: LanguageProvider, jev_model: str) -> list[Check]:
+async def run_checks(
+    jev: DecisionProvider, cortex: LanguageProvider, jev_model: str, search: SearchProvider | None = None
+) -> list[Check]:
     checks = []
     try:
         decision = await jev.decide({"text": "Hello there!"}, {"greeting": Noul(instructions="Is text a greeting?")})
@@ -107,4 +120,11 @@ async def run_checks(jev: DecisionProvider, cortex: LanguageProvider, jev_model:
             checks.append(Check(f"Claude {tier}", False, problem=explain(error)))
             if explain(error).field:  # same key problem would repeat for the other tier
                 break
+
+    if search is not None:
+        try:
+            outcome = await search.search("THALAMUS connectivity check", topic="general", max_results=1)
+            checks.append(Check("Web search (Tavily)", True, f"answered in {outcome.latency_ms:.0f} ms"))
+        except Exception as error:  # noqa: BLE001
+            checks.append(Check("Web search (Tavily)", False, problem=explain(error)))
     return checks

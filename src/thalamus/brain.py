@@ -7,6 +7,7 @@ memory → global workspace competition → select action → arbitrate fast/slo
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from collections.abc import Callable
@@ -22,6 +23,7 @@ from thalamus.core.workspace import GlobalWorkspace
 from thalamus.providers.base import Decision, DecisionProvider, Generation, LanguageProvider
 from thalamus.providers.claude import ClaudeProvider
 from thalamus.providers.jev import JevProvider
+from thalamus.providers.search import SearchProvider, TavilySearch, search_key
 from thalamus.regions.acc import AnteriorCingulate
 from thalamus.regions.amygdala import Amygdala
 from thalamus.regions.basal_ganglia import BasalGanglia
@@ -30,6 +32,7 @@ from thalamus.regions.hippocampus import Hippocampus
 from thalamus.regions.prefrontal import PrefrontalCortex, buffer_window
 from thalamus.regions.sensory_cortex import SensoryCortex
 from thalamus.regions.thalamus import Thalamus
+from thalamus.regions.web_sense import WebSense
 
 
 @dataclass
@@ -41,6 +44,7 @@ class Response:
     trace: CycleTrace
     cost_usd: float
     modulators: dict[str, float]
+    sources: list[dict]
 
 
 class Brain:
@@ -52,6 +56,7 @@ class Brain:
         cortex: LanguageProvider,
         memory: MemoryStore,
         clock: Callable[[], float] = time.time,
+        search: SearchProvider | None = None,
     ) -> None:
         self.settings = settings
         self.jev = jev
@@ -74,12 +79,14 @@ class Brain:
         self.basal_ganglia = BasalGanglia()
         self.prefrontal = PrefrontalCortex()
         self.broca = Broca()
+        self.web = WebSense(search)
         self.subcortical: list[BrainRegion] = [
             self.thalamus,
             self.amygdala,
             self.hippocampus,
             self.acc,
             self.basal_ganglia,
+            self.web,
         ]
 
         self._turn = 0
@@ -121,6 +128,7 @@ class Brain:
                 )
             ],
             "recall": self.prefrontal.working_memory.last_gate,
+            "web": self.web.last,
             "modulators": dict(self.modulators.levels),
             "budget": {"spent_usd": self.homeostasis.spent_usd, "limit_usd": self.settings.budget.session_usd},
         }
@@ -152,6 +160,7 @@ class Brain:
             previous_context=self._last_context,
             now=now,
             conversation_started=self.conversation_started,
+            web_enabled=self.web.enabled,
         )
 
         # Sense, then one parallel System-1 sweep shared by every subcortical region.
@@ -168,12 +177,24 @@ class Brain:
         if ctx.context_switched:
             self.prefrontal.working_memory.reset()
 
-        # Recall and gate memories into working memory, then compete for awareness.
+        ctx.action = self.basal_ganglia.select(ctx)
+
+        # Two parallel streams feed awareness: memories recalled from the past, and the web.
+        # Each is gated by JEV before it may compete for the global workspace.
         candidates = self.hippocampus.recall(ctx)
-        memory_signals, gate_decision = await self.prefrontal.working_memory.gate(ctx, candidates, self.jev)
+        (memory_signals, gate_decision), web = await asyncio.gather(
+            self.prefrontal.working_memory.gate(ctx, candidates, self.jev),
+            self.web.sense(ctx, self.cortex, self.jev),
+        )
         if gate_decision is not None:
             self._account_jev(gate_decision, trace, "wm_gate", len(gate_decision.nouls))
-        for signal in memory_signals:
+        if web.query_generation is not None:
+            self._account_llm(web.query_generation)
+        if web.billable_calls:
+            self.homeostasis.record_usd("tavily", web.billable_calls * self.settings.web.price_per_call_usd)
+        if web.gate_decision is not None:
+            self._account_jev(web.gate_decision, trace, "web_gate", len(web.gate_decision.nouls))
+        for signal in memory_signals + web.signals:
             self.workspace.submit(signal)
         capacity = self.modulators.workspace_capacity(self.settings.workspace_capacity)
         conscious = self.workspace.compete(capacity)
@@ -185,8 +206,7 @@ class Brain:
             contents=[f"{s.kind}:{s.content[:60]}" for s in conscious],
         )
 
-        # Select, arbitrate, think, speak.
-        ctx.action = self.basal_ganglia.select(ctx)
+        # Arbitrate, think, speak.
         ctx.arbitration = self.acc.arbitrate(ctx)
         draft: Generation | None = None
         if ctx.arbitration.path == "slow":
@@ -199,7 +219,8 @@ class Brain:
         # Learn: remember the exchange and what was done, for next turn's critic.
         self.hippocampus.encode(ctx, reply)
         cost = self.homeostasis.spent_usd - spent_before
-        meta = {"path": ctx.arbitration.path, "context": ctx.context_label, "cost_usd": cost}
+        sources = [signal.meta for signal in conscious if signal.kind == "web"]
+        meta = {"path": ctx.arbitration.path, "context": ctx.context_label, "cost_usd": cost, "sources": sources}
         self.history += [Turn("user", message), Turn("assistant", reply, meta)]
         self.last_activity = now
         self._last_action = self.basal_ganglia.remember(ctx, ctx.arbitration.path)
@@ -215,6 +236,7 @@ class Brain:
             trace=trace,
             cost_usd=cost,
             modulators=dict(self.modulators.levels),
+            sources=sources,
         )
 
     def _account_jev(self, decision: Decision, trace: CycleTrace, call: str, questions: int) -> None:
@@ -235,9 +257,11 @@ class Brain:
 def create_brain(settings: Settings) -> Brain:
     """Build a brain on the real providers. Raises MissingJevKeyError without a TypeSafe key."""
     require_jev_key()
+    search = TavilySearch(depth=settings.web.depth) if settings.web.enabled and search_key() else None
     return Brain(
         settings,
         jev=JevProvider(settings.models.jev),
         cortex=ClaudeProvider(settings.models),
         memory=MemoryStore(settings.memory_path),
+        search=search,
     )

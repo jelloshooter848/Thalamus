@@ -44,6 +44,8 @@ other AIs (vision, hearing, graph memory, sleep consolidation).
 3. **Enter your keys.** THALAMUS opens in your browser and asks for them:
    - **TypeSafe API key** (required): powers JEV.
    - **Anthropic API key**: powers Claude, from console.anthropic.com → Settings → API Keys.
+   - **Tavily API key** (optional): lets THALAMUS search the web. Get one at app.tavily.com; there's
+     a free tier.
    - **Workspace ID**: only if your Anthropic key says it "works across workspaces". The ID starts
      with `wrkspc_`.
 
@@ -54,6 +56,13 @@ other AIs (vision, hearing, graph memory, sleep consolidation).
    - **Mind** shows what THALAMUS is holding right now: the conversation buffer Claude is sent
      word for word, the recollections in working memory and how strong they are, and which
      memories the hippocampus offered for your last message, including the ones JEV turned away.
+
+**Internet access works like a sense.** When JEV judges that a message needs current or outside
+information (news, weather, prices, recent events), THALAMUS writes a search query, searches with
+Tavily, and has JEV vote on each result's relevance. Only relevant results reach Claude, and the
+reply shows its sources as links. Paste a link and THALAMUS reads that page. The **Brain activity**
+panel shows every search decision, the query, and which results were let in or turned away.
+Without a Tavily key, THALAMUS stays offline and says so.
 
 **Conversations work like a person's.** A conversation starts fresh when you click **New
 conversation** or after 30 minutes without a message. After that, THALAMUS reaches earlier

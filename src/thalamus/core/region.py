@@ -74,6 +74,7 @@ class CycleContext:
     previous_context: str | None = None
     now: float = 0.0
     conversation_started: float = 0.0
+    web_enabled: bool = False
 
     # Filled in as the cycle runs.
     state: dict[str, Any] = field(default_factory=dict)  # JEV-facing structured percept

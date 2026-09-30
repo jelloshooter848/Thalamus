@@ -21,3 +21,11 @@ session_usd = 1.00            # hypothalamus set point; hyperdirect STOP when ex
 path = "~/.thalamus/memory.db"
 recall_k = 5
 base_stability_hours = 72.0
+
+[web]
+enabled = true                # also needs TAVILY_API_KEY
+threshold = 0.6               # JEV's P(needs outside information) required to search
+max_results = 6
+admit = 4                     # most results allowed into awareness
+depth = "basic"               # "advanced" costs 2 Tavily credits per search
+price_per_call_usd = 0.008

@@ -111,7 +111,7 @@ def doctor(config: Optional[Path] = ConfigOption) -> None:
     brain = _brain(settings)
 
     async def check() -> int:
-        checks = await run_checks(brain.jev, brain.cortex, settings.models.jev)
+        checks = await run_checks(brain.jev, brain.cortex, settings.models.jev, brain.web.provider)
         for check in checks:
             if check.ok:
                 console.print(f"[green]✓[/] {check.name}: {check.detail}")
