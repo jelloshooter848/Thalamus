@@ -7,6 +7,7 @@ global workspace and by writing their findings onto the cycle context.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,7 +19,9 @@ from thalamus.core.memory_store import MemoryStore
 from thalamus.core.neuromodulators import Neuromodulators
 from thalamus.core.trace import CycleTrace
 from thalamus.core.workspace import GlobalWorkspace
-from thalamus.providers.base import Decision
+from thalamus.providers.base import Decision, TextSink
+
+StatusSink = Callable[[str], Awaitable[None]]  # short "what I'm doing" updates for the UI
 
 
 @dataclass
@@ -75,6 +78,8 @@ class CycleContext:
     now: float = 0.0
     conversation_started: float = 0.0
     web_enabled: bool = False
+    on_text: TextSink | None = None
+    on_status: StatusSink | None = None
 
     # Filled in as the cycle runs.
     state: dict[str, Any] = field(default_factory=dict)  # JEV-facing structured percept
@@ -88,6 +93,10 @@ class CycleContext:
     action: str = "respond"
     arbitration: Arbitration | None = None
     thought: str | None = None
+
+    async def status(self, text: str) -> None:
+        if self.on_status is not None:
+            await self.on_status(text)
 
     @property
     def previous_reply(self) -> str | None:

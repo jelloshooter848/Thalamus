@@ -9,7 +9,7 @@ from typing import Any
 import anthropic
 
 from thalamus.config import Models
-from thalamus.providers.base import Generation, Tier
+from thalamus.providers.base import Generation, TextSink, Tier
 
 # Models that accept server-side refusal fallbacks ("default" routes by refusal category).
 _FALLBACK_PREFIXES = ("claude-opus-5", "claude-fable-5", "claude-sonnet-5-5")
@@ -30,7 +30,13 @@ class ClaudeProvider:
         self._client = client or make_client()
 
     async def generate(
-        self, *, tier: Tier, system: str, messages: list[dict[str, Any]], max_tokens: int
+        self,
+        *,
+        tier: Tier,
+        system: str,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        on_text: TextSink | None = None,
     ) -> Generation:
         model = self._models.deep if tier == "deep" else self._models.fast
         params: dict[str, Any] = {
@@ -45,11 +51,16 @@ class ClaudeProvider:
 
         started = time.perf_counter()
         if model.startswith(_FALLBACK_PREFIXES):
-            response = await self._client.beta.messages.create(
-                betas=[_FALLBACK_BETA], fallbacks="default", **params
-            )
+            api, extra = self._client.beta.messages, {"betas": [_FALLBACK_BETA], "fallbacks": "default"}
         else:
-            response = await self._client.messages.create(**params)
+            api, extra = self._client.messages, {}
+        if on_text is None:
+            response = await api.create(**extra, **params)
+        else:  # stream the reply so it appears word by word
+            async with api.stream(**extra, **params) as stream:
+                async for delta in stream.text_stream:
+                    await on_text(delta)
+                response = await stream.get_final_message()
         latency_ms = (time.perf_counter() - started) * 1000
 
         text = "".join(block.text for block in response.content if block.type == "text")

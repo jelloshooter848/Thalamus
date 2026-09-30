@@ -64,6 +64,14 @@ class AnteriorCingulate(BrainRegion):
         # Serotonin is patience: a long time horizon makes deliberation feel cheaper.
         cost = ctx.homeostasis.deliberation_cost * (1.3 - 0.6 * ctx.modulators.serotonin)
 
+        # A lookup answered by admitted web results is grounded: reading it off the page doesn't
+        # need slow reasoning unless the answer must be worked out from what was found.
+        grounded = derived < t.derived * 0.7 and any(
+            signal.meta.get("url") for signal in ctx.workspace.of_kind("web")
+        )
+        if grounded:
+            value = demand * 0.5 * (0.6 + 0.8 * ctx.appraisal.stakes) + learned
+
         reasons: list[str] = []
         if ctx.homeostasis.exhausted:
             reasons.append("budget exhausted")
@@ -74,7 +82,7 @@ class AnteriorCingulate(BrainRegion):
         else:
             if derived >= t.derived:
                 reasons.append(f"answer must be derived (p={derived:.2f})")
-            if conflict >= t.conflict:
+            if conflict >= t.conflict and not grounded:
                 reasons.append(f"System-1 probes disagree (conflict={conflict:.2f})")
             if value - cost >= t.escalate_margin:
                 reasons.append(f"value of control {value:.2f} exceeds cost {cost:.2f}")
@@ -82,7 +90,7 @@ class AnteriorCingulate(BrainRegion):
         slow = bool(reasons) and not ctx.homeostasis.exhausted
         arbitration = Arbitration(
             path="slow" if slow else "fast",
-            reasons=reasons or ["System 1 is sufficient"],
+            reasons=reasons or ["answer is grounded in web results" if grounded else "System 1 is sufficient"],
             demand=demand,
             value=value,
             cost=cost,
@@ -98,5 +106,6 @@ class AnteriorCingulate(BrainRegion):
             cost=round(cost, 3),
             conflict=round(conflict, 3),
             learned_bias=round(learned, 3),
+            grounded=grounded,
         )
         return arbitration

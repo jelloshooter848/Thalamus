@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import sqlite3
@@ -33,6 +34,27 @@ CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(text, content='episod
 CREATE TRIGGER IF NOT EXISTS episodes_ai AFTER INSERT ON episodes BEGIN
     INSERT INTO episodes_fts(rowid, text) VALUES (new.id, new.text);
 END;
+CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    started REAL NOT NULL,
+    last_activity REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS turns (
+    id INTEGER PRIMARY KEY,
+    conversation TEXT NOT NULL,
+    created REAL NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    meta TEXT
+);
+CREATE INDEX IF NOT EXISTS turns_by_conversation ON turns(conversation, id);
+CREATE TABLE IF NOT EXISTS ledger (
+    id INTEGER PRIMARY KEY,
+    created REAL NOT NULL,
+    conversation TEXT NOT NULL,
+    service TEXT NOT NULL,
+    usd REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS vals (
     context TEXT NOT NULL,
     option TEXT NOT NULL,
@@ -186,9 +208,48 @@ class MemoryStore:
         return int(row["n"]), row["first"]
 
     def clear(self) -> None:
-        self._db.executescript("DELETE FROM episodes; DELETE FROM vals;")
+        self._db.executescript("DELETE FROM episodes; DELETE FROM vals; DELETE FROM turns; DELETE FROM conversations;")
         self._db.execute("INSERT INTO episodes_fts(episodes_fts) VALUES ('rebuild')")
         self._db.commit()
+
+    # ----- conversations (so a restart doesn't lose the thread) -------------------------------
+    def start_conversation(self, conversation: str, now: float) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO conversations (id, started, last_activity) VALUES (?, ?, ?)",
+            (conversation, now, now),
+        )
+        self._db.commit()
+
+    def add_turns(self, conversation: str, turns: list[tuple[str, str, dict | None]], now: float) -> None:
+        self._db.executemany(
+            "INSERT INTO turns (conversation, created, role, content, meta) VALUES (?, ?, ?, ?, ?)",
+            [(conversation, now, role, content, json.dumps(meta) if meta else None) for role, content, meta in turns],
+        )
+        self._db.execute("UPDATE conversations SET last_activity = ? WHERE id = ?", (now, conversation))
+        self._db.commit()
+
+    def latest_conversation(self) -> sqlite3.Row | None:
+        return self._db.execute("SELECT * FROM conversations ORDER BY last_activity DESC LIMIT 1").fetchone()
+
+    def load_turns(self, conversation: str) -> list[tuple[str, str, dict | None]]:
+        rows = self._db.execute(
+            "SELECT role, content, meta FROM turns WHERE conversation = ? ORDER BY id", (conversation,)
+        ).fetchall()
+        return [(r["role"], r["content"], json.loads(r["meta"]) if r["meta"] else None) for r in rows]
+
+    # ----- spending ledger ----------------------------------------------------------------------
+    def record_costs(self, conversation: str, breakdown: dict[str, float], now: float) -> None:
+        self._db.executemany(
+            "INSERT INTO ledger (created, conversation, service, usd) VALUES (?, ?, ?, ?)",
+            [(now, conversation, service, usd) for service, usd in breakdown.items() if usd > 0],
+        )
+        self._db.commit()
+
+    def spending(self, since: float = 0.0) -> dict[str, float]:
+        rows = self._db.execute(
+            "SELECT service, SUM(usd) AS total FROM ledger WHERE created >= ? GROUP BY service", (since,)
+        ).fetchall()
+        return {r["service"]: r["total"] for r in rows}
 
     # ----- learned values (striatal critic) --------------------------------------------------
     def value(self, context: str, option: str) -> float:

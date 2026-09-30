@@ -115,6 +115,7 @@
   .results li.out::before { content: "✗ "; color: var(--danger); font-weight: 700; }
   .results a { color: inherit; }
   .typing { display: inline-flex; gap: 4px; }
+  .bubble .status { margin-left: 10px; font-size: 13px; color: var(--muted); }
   .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
   .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
   @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
@@ -580,32 +581,83 @@ const input = $("input");
 input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 180) + "px"; });
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("composer").requestSubmit(); } });
 
+async function* streamChat(message) {
+  const res = await fetch("/api/chat/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Thalamus-Token": TOKEN },
+    body: JSON.stringify({ message }),
+  });
+  if (res.status === 401) { location.reload(); return; }
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({}));
+    yield { type: "error", error: data.error || { message: `HTTP ${res.status}` } };
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newline;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line) yield JSON.parse(line);
+    }
+  }
+}
+
+function showError(error) {
+  const hint = error.hint ? `\n${error.hint}` : "";
+  const el = addMessage("bot error", escapeHtml(error.message + hint));
+  if (error.field) {
+    const btn = document.createElement("button");
+    btn.className = "btn"; btn.textContent = "Open settings"; btn.style.marginTop = "6px";
+    btn.onclick = () => show("setup", window.__status);
+    el.appendChild(btn);
+  }
+}
+
 $("composer").addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
   if (!text) return;
   input.value = ""; input.style.height = "auto";
   addMessage("user", renderText(text));
-  const pending = addMessage("bot", `<span class="typing"><i></i><i></i><i></i></span>`);
+  const pending = addMessage("bot", `<span class="typing"><i></i><i></i><i></i></span><span class="status"></span>`);
+  const bubble = pending.querySelector(".bubble");
   $("sendBtn").disabled = true;
-  const result = await api("/api/chat", { message: text });
-  $("sendBtn").disabled = false;
-  pending.remove();
-  if (result.error) {
-    const hint = result.error.hint ? `\n${result.error.hint}` : "";
-    const el = addMessage("bot error", escapeHtml(result.error.message + hint));
-    if (result.error.field) {
-      const btn = document.createElement("button");
-      btn.className = "btn"; btn.textContent = "Open settings"; btn.style.marginTop = "6px";
-      btn.onclick = () => show("setup", window.__status);
-      el.appendChild(btn);
+  let streamed = "";
+  let result = null;
+  try {
+    for await (const event of streamChat(text)) {
+      if (event.type === "status") {
+        const note = bubble.querySelector(".status");
+        if (note) note.textContent = event.text;
+      } else if (event.type === "text") {
+        streamed += event.delta;
+        bubble.textContent = streamed;  // plain text while streaming; formatted when done
+        $("messages").scrollTop = $("messages").scrollHeight;
+      } else if (event.type === "done") {
+        result = event;
+      } else if (event.type === "error") {
+        pending.remove();
+        showError(event.error);
+      }
     }
-    return;
+  } catch (e) {
+    pending.remove();
+    showError({ message: "Lost the connection to THALAMUS. Is it still running?" });
   }
+  $("sendBtn").disabled = false;
+  if (!result) return;
+  pending.remove();
   addMessage("bot", renderText(result.text) + sourceLinks(result.sources), botMeta(result.path, result.context, result.cost_usd, result.sources));
   renderBrain(result);
   loadMind();
-  input.focus();
+  if (matchMedia("(pointer: fine)").matches) input.focus();
 });
 
 // ---------- brain panel ----------

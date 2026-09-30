@@ -7,7 +7,7 @@ Two kinds of intelligence feed the brain:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -67,7 +67,16 @@ class Generation:
 Tier = Literal["fast", "deep"]
 
 
+TextSink = Callable[[str], Awaitable[None]]  # receives reply text as it streams
+
+
 class LanguageProvider(Protocol):
     async def generate(
-        self, *, tier: Tier, system: str, messages: list[dict[str, Any]], max_tokens: int
+        self,
+        *,
+        tier: Tier,
+        system: str,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        on_text: TextSink | None = None,
     ) -> Generation: ...

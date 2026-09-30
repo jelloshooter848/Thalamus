@@ -41,7 +41,7 @@ class Broca:
             ctx, ACTION_GUIDANCE.get(ctx.action, ACTION_GUIDANCE["respond"]), render_awareness(ctx)
         )
         generation = await cortex.generate(
-            tier="fast", system=system, messages=conversation_messages(ctx), max_tokens=2048
+            tier="fast", system=system, messages=conversation_messages(ctx), max_tokens=2048, on_text=ctx.on_text
         )
         ctx.trace.log(
             self.name,

@@ -138,3 +138,28 @@ def test_history_mind_and_new_conversation(tmp_path):
     client.post("/api/conversation/new", json={}, headers=HEADERS)
     assert client.get("/api/history", headers=HEADERS).json() == {"turns": []}
     assert client.get("/api/mind", headers=HEADERS).json()["buffer"] == []
+
+
+def test_chat_streams_text_then_the_full_result(tmp_path):
+    import json as _json
+
+    client, _ = make_client(tmp_path)
+    with client.stream("POST", "/api/chat/stream", json={"message": "What is 12 * 34?"}, headers=HEADERS) as r:
+        events = [_json.loads(line) for line in r.iter_lines() if line]
+    kinds = [e["type"] for e in events]
+    assert kinds[0] == "status" and events[0]["text"] == "Thinking it through…"
+    assert "".join(e["delta"] for e in events if e["type"] == "text") == "[deep] reply"
+    assert kinds[-1] == "done" and events[-1]["path"] == "slow" and events[-1]["trace"]
+
+
+def test_stream_reports_provider_errors(tmp_path):
+    import json as _json
+
+    class BrokenCortex(FakeCortex):
+        async def generate(self, **kwargs):
+            raise anthropic.APIConnectionError(request=httpx2.Request("POST", "https://api.anthropic.com"))
+
+    client, _ = make_client(tmp_path, cortex=BrokenCortex())
+    with client.stream("POST", "/api/chat/stream", json={"message": "hello!"}, headers=HEADERS) as r:
+        events = [_json.loads(line) for line in r.iter_lines() if line]
+    assert events[-1] == {"type": "error", "error": {"message": "Couldn't reach Anthropic (Claude).", "hint": "Check your internet connection.", "field": None}}

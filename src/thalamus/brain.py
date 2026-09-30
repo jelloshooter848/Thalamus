@@ -17,10 +17,10 @@ from thalamus.config import Settings, require_jev_key
 from thalamus.core.homeostasis import Homeostasis
 from thalamus.core.memory_store import MemoryStore
 from thalamus.core.neuromodulators import Neuromodulators
-from thalamus.core.region import BrainRegion, CycleContext, LastAction, Turn
+from thalamus.core.region import BrainRegion, CycleContext, LastAction, StatusSink, Turn
 from thalamus.core.trace import CycleTrace
 from thalamus.core.workspace import GlobalWorkspace
-from thalamus.providers.base import Decision, DecisionProvider, Generation, LanguageProvider
+from thalamus.providers.base import Decision, DecisionProvider, Generation, LanguageProvider, TextSink
 from thalamus.providers.claude import ClaudeProvider
 from thalamus.providers.jev import JevProvider
 from thalamus.providers.search import SearchProvider, TavilySearch, search_key
@@ -96,6 +96,20 @@ class Brain:
         self._turn = 0
         self._last_action: LastAction | None = None
         self._last_context: str | None = None
+        self._resume_or_start()
+
+    def _resume_or_start(self) -> None:
+        """Pick the last conversation back up after a restart, unless it has gone quiet."""
+        row = self.memory.latest_conversation()
+        idle = self.settings.conversation_idle_minutes * 60
+        if row is None or self.clock() - row["last_activity"] > idle:
+            self.new_conversation()
+            return
+        self.session = row["id"]
+        self.conversation_started = row["started"]
+        self.last_activity = row["last_activity"]
+        self.history = [Turn(role, content, meta) for role, content, meta in self.memory.load_turns(row["id"])]
+        self._turn = len(self.history) // 2
 
     def new_conversation(self) -> None:
         """Start a fresh conversation. Long-term memory and learned values are kept, so earlier
@@ -108,6 +122,7 @@ class Brain:
         self._turn = 0
         self._last_action = None
         self._last_context = None
+        self.memory.start_conversation(self.session, self.conversation_started)
 
     def snapshot(self) -> dict:
         """What the mind currently holds, for the Mind view."""
@@ -141,7 +156,14 @@ class Brain:
             },
         }
 
-    async def think(self, message: str) -> Response:
+    async def think(
+        self,
+        message: str,
+        on_text: TextSink | None = None,
+        on_status: StatusSink | None = None,
+    ) -> Response:
+        """Run one cognitive cycle. `on_text` receives the reply as it streams; `on_status` receives
+        short progress notes ("Searching the web…") for the UI."""
         now = self.clock()
         idle = self.settings.conversation_idle_minutes * 60
         rolled_over = self.last_activity is not None and now - self.last_activity > idle
@@ -170,6 +192,8 @@ class Brain:
             now=now,
             conversation_started=self.conversation_started,
             web_enabled=self.web.enabled,
+            on_text=on_text,
+            on_status=on_status,
         )
 
         # Sense, then one parallel System-1 sweep shared by every subcortical region.
@@ -219,6 +243,7 @@ class Brain:
         ctx.arbitration = self.acc.arbitrate(ctx)
         draft: Generation | None = None
         if ctx.arbitration.path == "slow":
+            await ctx.status("Thinking it through…")
             draft = await self.prefrontal.deliberate(ctx, self.cortex)
             self._account_llm(draft)
         reply, spoken = await self.broca.speak(ctx, self.cortex, draft)
@@ -231,20 +256,22 @@ class Brain:
         sources = [signal.meta for signal in conscious if signal.kind == "web" and signal.meta.get("url")]
         meta = {"path": ctx.arbitration.path, "context": ctx.context_label, "cost_usd": cost, "sources": sources}
         self.history += [Turn("user", message), Turn("assistant", reply, meta)]
+        self.memory.add_turns(self.session, [("user", message, None), ("assistant", reply, meta)], now)
         self.last_activity = now
         self._last_action = self.basal_ganglia.remember(ctx, ctx.arbitration.path)
         self._last_context = ctx.context_label
         trace.log("neuromodulators", "levels", **{k: round(v, 3) for k, v in self.modulators.levels.items()})
         breakdown = {
-            service: round(total - by_service_before.get(service, 0.0), 6)
+            service: total - by_service_before.get(service, 0.0)
             for service, total in self.homeostasis.by_service.items()
             if total - by_service_before.get(service, 0.0) > 0
         }
+        self.memory.record_costs(self.session, breakdown, now)
         trace.log(
             "hypothalamus",
             "budget",
             spent_usd=round(self.homeostasis.spent_usd, 6),
-            this_turn=breakdown,
+            this_turn={service: round(usd, 6) for service, usd in breakdown.items()},
             **({"unpriced_models": sorted(self.homeostasis.unpriced)} if self.homeostasis.unpriced else {}),
         )
 

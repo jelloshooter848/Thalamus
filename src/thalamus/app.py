@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import secrets
 import socket
@@ -21,7 +22,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.responses import Response as HTTPResponse
 from pydantic import BaseModel
 
@@ -323,6 +324,40 @@ def create_app(
                 return error(exc)
         return JSONResponse(serialize(response))
 
+    @app.post("/api/chat/stream")
+    async def chat_stream(request: ChatRequest):
+        """The reply streams as NDJSON lines: status notes, text deltas, then the full result."""
+        if not request.message.strip():
+            return JSONResponse({"error": {"message": "Say something first."}}, status_code=400)
+        queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+        async def on_text(delta: str) -> None:
+            await queue.put({"type": "text", "delta": delta})
+
+        async def on_status(note: str) -> None:
+            await queue.put({"type": "status", "text": note})
+
+        async def run() -> None:
+            async with lock:
+                try:
+                    response = await brain().think(request.message, on_text=on_text, on_status=on_status)
+                    await queue.put({"type": "done", **serialize(response)})
+                except Exception as exc:  # noqa: BLE001 - report provider failures, keep serving
+                    await queue.put({"type": "error", "error": asdict(explain(exc))})
+                finally:
+                    await queue.put(None)
+
+        task = asyncio.create_task(run())
+
+        async def lines():
+            try:
+                while (item := await queue.get()) is not None:
+                    yield json.dumps(item) + "\n"
+            finally:
+                await task
+
+        return StreamingResponse(lines(), media_type="application/x-ndjson")
+
     @app.get("/api/history")
     async def history() -> dict:
         current: Brain | None = app.state.brain
@@ -360,7 +395,7 @@ def create_app(
             store = app.state.brain.memory if app.state.brain else MemoryStore(settings.memory_path)
             store.clear()
             if app.state.brain is not None:
-                app.state.brain.prefrontal.working_memory.reset()
+                app.state.brain.new_conversation()  # the thread is part of what was forgotten
             if store is not getattr(app.state.brain, "memory", None):
                 store.close()
         return {"ok": True}
