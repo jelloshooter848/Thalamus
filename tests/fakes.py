@@ -151,8 +151,13 @@ class FakeSearch:
         self.searches.append((query, topic))
         return SearchOutcome(query=query, results=list(self.results)[:max_results], latency_ms=120)
 
+    unreadable: bool = False
+
     async def read(self, url):
         from thalamus.providers.search import SearchOutcome, WebResult
 
         self.reads.append(url)
+        if self.unreadable:
+            note = "couldn't fetch the page itself (blocked); a search of the site found nothing either"
+            return SearchOutcome(query=url, results=[], calls=4, note=note)
         return SearchOutcome(query=url, results=[WebResult("Shared page", url, "Full text of the shared page.")])

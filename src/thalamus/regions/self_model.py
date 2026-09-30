@@ -55,8 +55,10 @@ class SelfModel(BrainRegion):
         if ctx.web_enabled:
             facts.append(
                 "Internet: YES. You can search the web right now (via Tavily). You do it automatically "
-                "whenever a message needs current or outside information, and you read links the user "
-                "pastes. If the user asks you to look something up, you will."
+                "whenever a message needs current or outside information, and you read the pages behind "
+                "links the user pastes (Tavily Extract, retrying with an advanced reader). Some sites "
+                "block automated readers; when a read fails you're told why. If the user asks you to look "
+                "something up, you will."
             )
             facts.append(
                 "Knowledge: your built-in knowledge is from training, but that is not a limit here, "

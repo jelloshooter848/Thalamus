@@ -113,3 +113,45 @@ async def test_tavily_provider_against_the_real_sdk():
 
     page = await search.read("https://a.example")
     assert page.results[0].content == "Page"
+
+
+async def test_an_unreadable_link_is_reported_honestly(store):
+    search = FakeSearch(unreadable=True)
+    brain = make_brain(store, search)
+    response = await brain.think("what's on http://blocked.example/ ?")
+    system = brain.cortex.calls[-1]["system"]
+    assert "You tried to read http://blocked.example/: couldn't fetch the page itself (blocked)" in system
+    assert response.sources == []  # a status note is not a source
+    assert brain.homeostasis.spent_usd >= 4 * 0.008  # retries are billed
+
+
+async def test_tavily_read_retries_then_searches_the_site():
+    import json
+
+    import httpx
+    from tavily import AsyncTavilyClient
+
+    from thalamus.providers.search import TavilySearch
+
+    calls = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        calls.append((request.url.path.rsplit("/", 1)[-1], body.get("extract_depth"), body.get("include_domains")))
+        if request.url.path.endswith("/extract"):
+            return httpx.Response(200, json={"results": [], "failed_results": [{"url": "x", "error": "403 Forbidden"}]})
+        return httpx.Response(
+            200, json={"results": [{"title": "Old Town", "url": "http://site.example/about", "content": "History"}]}
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.tavily.com")
+    search = TavilySearch(client=AsyncTavilyClient(api_key="tvly-test", client=http))
+    found = await search.read("http://site.example/")
+    assert calls == [
+        ("extract", "basic", None),
+        ("extract", "advanced", None),
+        ("search", None, ["site.example"]),
+    ]
+    assert found.results[0].title == "Old Town"
+    assert found.calls == 4
+    assert "403 Forbidden" in found.note and "found 1 indexed page" in found.note
