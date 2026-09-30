@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typesafe_sdk import Noul
 
 from thalamus.core.memory_store import Episode
-from thalamus.core.region import CycleContext
+from thalamus.core.region import CycleContext, Turn
 from thalamus.core.signals import Signal
 from thalamus.providers.base import Decision, DecisionProvider, Generation, LanguageProvider
 from thalamus.providers.jev import clip
@@ -30,6 +30,24 @@ PERSONA = (
     "scores or this system's internals unless the user asks how you work."
 )
 
+# An accurate self-model. Without it the cortex falls back on a generic chatbot's beliefs about
+# itself ("I have no memory between sessions") and confabulates features this system doesn't have.
+SELF_MODEL = (
+    "How your memory works (be accurate about this whenever it comes up):\n"
+    "- You see the recent turns of the current conversation word for word.\n"
+    "- You also have long-term episodic memory, kept on this computer, spanning all your past "
+    "conversations with this user. When something is recalled it appears below under 'Memories from "
+    "earlier conversations'. Those are genuine recollections: speak of them as things you remember, "
+    "and use their timing.\n"
+    "- Recall is selective and cue-driven, and memories fade unless revisited, so you won't remember "
+    "everything. Say that honestly; never claim you have no memory.\n"
+    "- A conversation starts fresh after a long pause or when the user starts a new one; after that, "
+    "earlier conversations are reachable only through memory.\n"
+    "- The user can see your working memory in the Mind tab and view or erase your long-term memory "
+    "with the Memory button. You have no other history features (no cloud account, sync or browsing), "
+    "so never claim any."
+)
+
 
 @dataclass
 class WorkingItem:
@@ -37,6 +55,7 @@ class WorkingItem:
     text: str
     strength: float
     episode_id: int | None = None
+    held: int = 0  # turns this item has been maintained in working memory
 
 
 def describe_age(seconds: float) -> str:
@@ -59,15 +78,18 @@ class WorkingMemory:
     def __init__(self, slots: int = 4) -> None:
         self.slots = slots
         self.items: dict[str, WorkingItem] = {}
+        self.last_gate: list[dict] = []  # this turn's recall: every candidate and the gate's verdict
 
     def reset(self) -> None:
         self.items.clear()
+        self.last_gate = []
 
     async def gate(
         self, ctx: CycleContext, candidates: list[Episode], jev: DecisionProvider
     ) -> tuple[list[Signal], Decision | None]:
         for item in self.items.values():
             item.strength *= MAINTENANCE_DECAY
+        self.last_gate = []
         pool: dict[str, WorkingItem] = {k: v for k, v in self.items.items() if v.strength >= DROP_BELOW}
         for episode in candidates:
             key = f"episode:{episode.id}"
@@ -97,7 +119,17 @@ class WorkingMemory:
         admitted = []
         for mid, item in ids.items():
             p = decision.nouls[f"gate.{mid}"].p
-            if p < ctx.settings.thresholds.memory_gate:
+            passed = p >= ctx.settings.thresholds.memory_gate
+            self.last_gate.append(
+                {
+                    "text": item.text,
+                    "source": "held" if item.key in self.items else "recalled",
+                    "score": round(item.strength, 3),
+                    "p": round(p, 3),
+                    "admitted": passed,
+                }
+            )
+            if not passed:
                 continue
             admitted.append(item.key)
             signals.append(
@@ -121,7 +153,9 @@ class WorkingMemory:
             if signal.kind != "memory":
                 continue
             episode_id = signal.meta.get("episode_id")
-            self.items[signal.key] = WorkingItem(signal.key, signal.content, signal.salience, episode_id)
+            previous = self.items.get(signal.key)
+            held = previous.held + 1 if previous else 1
+            self.items[signal.key] = WorkingItem(signal.key, signal.content, signal.salience, episode_id, held)
             if episode_id is not None:
                 reinforced.append(episode_id)
         strongest = sorted(self.items.values(), key=lambda item: item.strength, reverse=True)
@@ -132,7 +166,7 @@ class WorkingMemory:
 def render_awareness(ctx: CycleContext) -> str:
     """The output gate: what reached awareness this moment, for the cortex's prompt."""
     sections = {
-        "Memories that surfaced": ctx.workspace.of_kind("memory"),
+        "Memories from earlier conversations (recalled just now)": ctx.workspace.of_kind("memory"),
         "Felt sense of the message": ctx.workspace.of_kind("appraisal"),
         "Deliberation": ctx.workspace.of_kind("thought"),
     }
@@ -146,10 +180,25 @@ def render_awareness(ctx: CycleContext) -> str:
     return "What is in your awareness right now (use it only where it helps):\n" + "\n".join(lines)
 
 
-def conversation_messages(ctx: CycleContext) -> list[dict]:
-    window = ctx.history[-ctx.settings.history_turns * 2 :]
+def buffer_window(history: list[Turn], turns: int) -> list[Turn]:
+    """The conversation buffer: the most recent exchanges, starting on a user turn."""
+    window = history[-turns * 2 :]
     while window and window[0].role != "user":
         window = window[1:]
+    return window
+
+
+def system_prompt(ctx: CycleContext, *parts: str) -> str:
+    now = ctx.now or time.time()
+    clock = (
+        f"It is now {time.strftime('%A %d %B %Y, %H:%M', time.localtime(now))}. "
+        f"This conversation started {describe_age(now - (ctx.conversation_started or now))}."
+    )
+    return "\n\n".join(part for part in (PERSONA, SELF_MODEL, clock, *parts) if part)
+
+
+def conversation_messages(ctx: CycleContext) -> list[dict]:
+    window = buffer_window(ctx.history, ctx.settings.history_turns)
     messages = [{"role": turn.role, "content": turn.content} for turn in window]
     messages.append({"role": "user", "content": ctx.message})
     return messages
@@ -162,15 +211,11 @@ class PrefrontalCortex:
         self.working_memory = WorkingMemory(slots)
 
     async def deliberate(self, ctx: CycleContext, cortex: LanguageProvider) -> Generation:
-        system = "\n\n".join(
-            part
-            for part in (
-                PERSONA,
-                "This message was judged to need careful thought. Reason it through, check your work, "
-                "then write your final reply to the user.",
-                render_awareness(ctx),
-            )
-            if part
+        system = system_prompt(
+            ctx,
+            "This message was judged to need careful thought. Reason it through, check your work, "
+            "then write your final reply to the user.",
+            render_awareness(ctx),
         )
         generation = await cortex.generate(
             tier="deep", system=system, messages=conversation_messages(ctx), max_tokens=16000

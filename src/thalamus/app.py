@@ -170,6 +170,25 @@ def create_app(
                 return error(exc)
         return JSONResponse(serialize(response))
 
+    @app.get("/api/history")
+    async def history() -> dict:
+        current: Brain | None = app.state.brain
+        if current is None:
+            return {"turns": []}
+        return {"turns": [{"role": t.role, "content": t.content, "meta": t.meta} for t in current.history]}
+
+    @app.post("/api/conversation/new")
+    async def new_conversation() -> dict:
+        async with lock:
+            if app.state.brain is not None:
+                app.state.brain.new_conversation()
+        return {"ok": True}
+
+    @app.get("/api/mind")
+    async def mind() -> dict:
+        current: Brain | None = app.state.brain
+        return current.snapshot() if current is not None else {}
+
     @app.get("/api/memory")
     async def memory() -> dict:
         store = app.state.brain.memory if app.state.brain else MemoryStore(settings.memory_path)
@@ -187,6 +206,8 @@ def create_app(
         async with lock:
             store = app.state.brain.memory if app.state.brain else MemoryStore(settings.memory_path)
             store.clear()
+            if app.state.brain is not None:
+                app.state.brain.prefrontal.working_memory.reset()
             if store is not getattr(app.state.brain, "memory", None):
                 store.close()
         return {"ok": True}

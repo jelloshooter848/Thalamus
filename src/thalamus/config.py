@@ -80,6 +80,8 @@ class Settings:
     memory: Memory = field(default_factory=Memory)
     workspace_capacity: int = 7
     history_turns: int = 6
+    # After this long without a message, the next one starts a new conversation.
+    conversation_idle_minutes: float = 30.0
 
     @property
     def memory_path(self) -> Path:
