@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "thalamus"
+version = "0.1.0"
+description = "THALAMUS: Thought Hub for Attention, Learning, Arbitration, Memory, and Unified Synthesis - a brain-modelled agent (JEV System 1 + Claude System 2)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "typesafe-sdk>=0.7.2",
+    "anthropic>=1.9",
+    "pydantic>=2.7",
+    "typer>=0.12",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
+
+[project.scripts]
+thalamus = "thalamus.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/thalamus"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
