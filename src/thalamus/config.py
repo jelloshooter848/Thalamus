@@ -1,0 +1,127 @@
+"""Configuration: model choices, thresholds, budgets and API-key checks.
+
+JEV is not optional. Every System-1 region runs on it, and there is deliberately no
+stand-in, so a missing TypeSafe key stops THALAMUS before it thinks at all.
+"""
+
+from __future__ import annotations
+
+import os
+import tomllib
+from dataclasses import dataclass, field, fields, is_dataclass
+from pathlib import Path
+from typing import Any
+
+JEV_KEY_ENV = "TYPESAFE_API_KEY"
+
+
+class MissingJevKeyError(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__(
+            f"THALAMUS requires a TypeSafe API key: set {JEV_KEY_ENV} (see .env.example). "
+            "JEV powers the thalamus, amygdala, basal ganglia and anterior cingulate; "
+            "there is no fallback model."
+        )
+
+
+@dataclass
+class Models:
+    jev: str = "jev-latest"
+    # Broca's fast path: short, well-grounded replies.
+    fast: str = "claude-haiku-4-5"
+    # Prefrontal cortex: slow, deliberate System-2 reasoning.
+    deep: str = "claude-opus-5-5"
+    deep_effort: str = "high"
+
+
+@dataclass
+class Thresholds:
+    # ACC: escalate to the prefrontal cortex when value of control exceeds its cost by this margin.
+    escalate_margin: float = 0.1
+    # "Derived" answers (math, code, logic) are where JEV and fast models fail; escalate above this.
+    derived: float = 0.7
+    # Two System-1 framings disagreeing by more than this counts as conflict.
+    conflict: float = 0.5
+    # Basal ganglia NoGo veto (high bar: a wrong refusal is costly too).
+    nogo: float = 0.85
+    # Minimum Choice confidence before the basal ganglia act on JEV's selected action.
+    action_confidence: float = 0.55
+    # Hippocampal input gate into working memory.
+    memory_gate: float = 0.5
+
+
+@dataclass
+class Budget:
+    session_usd: float = 1.00
+    # Prices per million tokens: (input, output).
+    prices: dict[str, tuple[float, float]] = field(
+        default_factory=lambda: {
+            "jev": (0.042, 0.0),
+            "claude-haiku-4-5": (1.0, 5.0),
+            "claude-sonnet-5-5": (2.0, 10.0),
+            "claude-opus-5-5": (4.0, 20.0),
+        }
+    )
+
+
+@dataclass
+class Memory:
+    path: str = "~/.thalamus/memory.db"
+    recall_k: int = 5
+    # Hours for an unrehearsed, unimportant memory to fall to ~37% retention.
+    base_stability_hours: float = 72.0
+
+
+@dataclass
+class Settings:
+    models: Models = field(default_factory=Models)
+    thresholds: Thresholds = field(default_factory=Thresholds)
+    budget: Budget = field(default_factory=Budget)
+    memory: Memory = field(default_factory=Memory)
+    workspace_capacity: int = 7
+    history_turns: int = 6
+
+    @property
+    def memory_path(self) -> Path:
+        return Path(self.memory.path).expanduser()
+
+
+def _merge(target: Any, values: dict[str, Any]) -> None:
+    known = {f.name for f in fields(target)}
+    for key, value in values.items():
+        if key not in known:
+            raise ValueError(f"Unknown config key: {key}")
+        current = getattr(target, key)
+        if is_dataclass(current) and isinstance(value, dict):
+            _merge(current, value)
+        else:
+            setattr(target, key, value)
+
+
+def load_dotenv(path: Path = Path(".env")) -> None:
+    """Load KEY=VALUE lines from .env without overriding the real environment."""
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip().strip("'\"")
+        if value:
+            os.environ.setdefault(key.strip(), value)
+
+
+def load_settings(path: Path | None = None) -> Settings:
+    settings = Settings()
+    path = path or Path("thalamus.toml")
+    if path.is_file():
+        _merge(settings, tomllib.loads(path.read_text()))
+    return settings
+
+
+def require_jev_key() -> str:
+    key = os.environ.get(JEV_KEY_ENV, "").strip()
+    if not key:
+        raise MissingJevKeyError()
+    return key

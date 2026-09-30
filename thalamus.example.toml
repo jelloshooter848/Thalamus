@@ -1,0 +1,23 @@
+# Copy to thalamus.toml to override defaults. Every key is optional.
+
+[models]
+jev = "jev-latest"            # TypeSafe System One model (required; no fallback)
+fast = "claude-haiku-4-5"     # Broca's area fast path
+deep = "claude-opus-5-5"      # prefrontal cortex (System 2)
+deep_effort = "high"          # low | medium | high | xhigh | max
+
+[thresholds]
+escalate_margin = 0.1         # ACC: value of control must beat its cost by this much
+derived = 0.7                 # P(answer must be worked out) that forces deliberation
+conflict = 0.5                # disagreement between System-1 probes that forces deliberation
+nogo = 0.85                   # basal ganglia harm veto
+action_confidence = 0.55      # bar for acting on clarify/deliberate selections
+memory_gate = 0.5             # working-memory input gate
+
+[budget]
+session_usd = 1.00            # hypothalamus set point; hyperdirect STOP when exhausted
+
+[memory]
+path = "~/.thalamus/memory.db"
+recall_k = 5
+base_stability_hours = 72.0
