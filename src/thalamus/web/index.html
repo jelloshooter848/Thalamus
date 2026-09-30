@@ -143,6 +143,14 @@
   .recall li.in::before { content: "✓ "; color: var(--fast); font-weight: 700; }
   .recall li.out { opacity: .7; }
   .recall li.out::before { content: "✗ "; color: var(--danger); font-weight: 700; }
+  .facts { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+  .fact { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); flex-wrap: wrap; }
+  .fact .text { flex: 1; min-width: 180px; outline: none; border-radius: 6px; padding: 2px 4px; }
+  .fact .text:focus { background: var(--panel); box-shadow: 0 0 0 2px var(--accent); }
+  .fact .cat { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .fact button { border: 0; background: none; cursor: pointer; font-size: 15px; color: var(--muted); padding: 2px 4px; }
+  .fact .pin.on { color: #e0a800; }
+  .fact .del:hover { color: var(--danger); }
   .linkish { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; }
   .section { margin-bottom: 20px; }
   .section h3 { font-size: 13px; margin: 0 0 8px; }
@@ -361,7 +369,14 @@
     <button class="btn danger" id="clearMemory" type="button">Forget everything</button>
     <button class="btn" id="closeMemory" type="button">Close</button>
   </div>
-  <div class="dialog-body" id="memoryBody"></div>
+  <div class="dialog-body">
+    <div class="tabs" role="tablist" style="max-width:420px">
+      <button type="button" role="tab" id="memFactsBtn" aria-selected="true">What I know about you</button>
+      <button type="button" role="tab" id="memEpisodesBtn" aria-selected="false">Memories &amp; learning</button>
+    </div>
+    <div id="memFacts" role="tabpanel"></div>
+    <div id="memoryBody" class="hidden" role="tabpanel"></div>
+  </div>
 </dialog>
 
 <script>
@@ -701,9 +716,13 @@ function renderBrain(r) {
     $("bWeb").innerHTML = `<dl class="kv"><dt>Decision</dt><dd>${escapeHtml(web.decision)}</dd>${web.query ? `<dt>Query</dt><dd>${escapeHtml(web.query)}</dd>` : ""}${web.latency_ms ? `<dt>Search time</dt><dd>${web.latency_ms} ms</dd>` : ""}${webGate ? `<dt>Relevance gate</dt><dd>${webGate.latency_ms} ms</dd>` : ""}</dl><p class="note" style="margin-top:6px">${escapeHtml(web.reason)}</p>${results ? `<ul class="results">${results}</ul>` : ""}`;
   }
   const memories = (broadcast.contents || []).filter((c) => c.startsWith("memory:")).map((c) => c.slice(7));
-  $("bMemories").innerHTML = memories.length
-    ? memories.map((m) => `<li>${escapeHtml(m)}…</li>`).join("")
-    : `<li class="muted">None needed this time.</li>`;
+  const known = find(t, "neocortex", "facts")?.data;
+  const edit = find(t, "reconsolidation", "forget") || find(t, "reconsolidation", "correct");
+  $("bMemories").innerHTML = (known ? `<li>${known.facts.length} fact(s) about you in mind</li>` : "")
+    + (edit ? `<li>Memory ${edit.event === "forget" ? "forgotten" : "corrected"} at your request</li>` : "")
+    + (memories.length
+      ? memories.map((m) => `<li>${escapeHtml(m)}…</li>`).join("")
+      : (known || edit ? "" : `<li class="muted">None needed this time.</li>`));
 
   const rows = [
     ["JEV questions", sweep.questions ?? "–"],
@@ -787,9 +806,92 @@ async function loadMind() {
 }
 
 // ---------- memory dialog ----------
+function memoryTab(name) {
+  $("memFacts").classList.toggle("hidden", name !== "facts");
+  $("memoryBody").classList.toggle("hidden", name !== "episodes");
+  $("memFactsBtn").setAttribute("aria-selected", String(name === "facts"));
+  $("memEpisodesBtn").setAttribute("aria-selected", String(name === "episodes"));
+}
+$("memFactsBtn").addEventListener("click", () => memoryTab("facts"));
+$("memEpisodesBtn").addEventListener("click", () => memoryTab("episodes"));
+
+function sleepSummary(r) {
+  if (!r) return "THALAMUS hasn't slept yet.";
+  const parts = [];
+  if (r.added.length) parts.push(`learned ${r.added.length}`);
+  if (r.updated.length) parts.push(`updated ${r.updated.length}`);
+  if (r.retired.length) parts.push(`retired ${r.retired.length}`);
+  if (r.rejected.length) parts.push(`rejected ${r.rejected.length} unsupported`);
+  const when = ago(Date.now() / 1000 - r.created);
+  return `Last slept ${when} (${r.trigger === "idle" ? "while idle" : "on request"}): ${parts.join(", ") || r.note || "no changes"}${r.cost_usd ? ` · $${r.cost_usd.toFixed(4)}` : ""}.`;
+}
+
+async function loadFacts() {
+  const data = await api("/api/facts");
+  if (data.error) { $("memFacts").textContent = data.error.message; return; }
+  const rows = data.facts.map((f) => `
+    <li class="fact" data-id="${f.id}">
+      <button class="pin ${f.pinned ? "on" : ""}" type="button" title="${f.pinned ? "Unpin" : "Pin: always keep in mind"}">★</button>
+      <span class="text" contenteditable="true" spellcheck="false">${escapeHtml(f.text)}</span>
+      <span class="cat">${escapeHtml(f.category)}${f.origin === "you" ? " · added by you" : f.origin === "correction" ? " · corrected" : ""}</span>
+      <button class="del" type="button" title="Forget this">✕</button>
+    </li>`).join("");
+  $("memFacts").innerHTML = `
+    <p class="note">Facts THALAMUS has distilled from your conversations while sleeping. Each one was checked by JEV against what you actually said. Click a fact to edit it, ★ to keep it always in mind, ✕ to forget it.</p>
+    <div class="row" style="margin:8px 0 14px">
+      <button class="btn" id="sleepNow" type="button">Sleep now</button>
+      <span class="muted" id="sleepStatus">${escapeHtml(sleepSummary(data.reports[0]))}${data.pending ? ` ${data.pending} new message(s) waiting.` : ""}</span>
+    </div>
+    ${rows ? `<ul class="facts">${rows}</ul>` : `<p class="muted">Nothing yet. Talk for a while, then let THALAMUS sleep.</p>`}
+    <form class="row" id="addFact" style="margin-top:12px">
+      <input id="newFact" placeholder="Teach it something, e.g. The user prefers short answers." style="flex:1;min-width:0;padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)">
+      <button class="btn" type="submit">Add</button>
+    </form>`;
+  $("sleepNow").addEventListener("click", async () => {
+    $("sleepNow").disabled = true;
+    $("sleepStatus").textContent = "Sleeping: replaying recent conversations…";
+    const report = await api("/api/sleep", {});
+    $("sleepNow").disabled = false;
+    if (report.error) { $("sleepStatus").textContent = report.error.message; return; }
+    loadFacts();
+  });
+  $("addFact").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!$("newFact").value.trim()) return;
+    await api("/api/facts", { text: $("newFact").value, category: "other" });
+    loadFacts();
+  });
+  document.querySelectorAll("#memFacts .fact").forEach((li) => {
+    const id = li.dataset.id;
+    li.querySelector(".pin").addEventListener("click", async () => {
+      await fetchJSON(`/api/facts/${id}`, "PATCH", { pinned: !li.querySelector(".pin").classList.contains("on") });
+      loadFacts();
+    });
+    li.querySelector(".del").addEventListener("click", async () => {
+      await fetchJSON(`/api/facts/${id}`, "DELETE");
+      li.remove();
+    });
+    const text = li.querySelector(".text");
+    text.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); text.blur(); } });
+    text.addEventListener("blur", () => fetchJSON(`/api/facts/${id}`, "PATCH", { text: text.textContent }));
+  });
+}
+
+async function fetchJSON(path, method, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json", "X-Thalamus-Token": TOKEN },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return res.json().catch(() => ({}));
+}
+
 $("memoryBtn").addEventListener("click", async () => {
   $("memoryBody").innerHTML = `<div class="muted">Loading…</div>`;
+  $("memFacts").innerHTML = `<div class="muted">Loading…</div>`;
+  memoryTab("facts");
   $("memoryDialog").showModal();
+  loadFacts();
   const data = await api("/api/memory");
   if (data.error) { $("memoryBody").textContent = data.error.message; return; }
   const episodes = data.episodes.length

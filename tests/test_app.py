@@ -163,3 +163,24 @@ def test_stream_reports_provider_errors(tmp_path):
     with client.stream("POST", "/api/chat/stream", json={"message": "hello!"}, headers=HEADERS) as r:
         events = [_json.loads(line) for line in r.iter_lines() if line]
     assert events[-1] == {"type": "error", "error": {"message": "Couldn't reach Anthropic (Claude).", "hint": "Check your internet connection.", "field": None}}
+
+
+def test_facts_can_be_viewed_edited_pinned_and_deleted(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/chat", json={"message": "Hi, my name is Riley"}, headers=HEADERS)
+    client.post("/api/chat", json={"message": "I live in Gilroy"}, headers=HEADERS)
+    report = client.post("/api/sleep", json={}, headers=HEADERS).json()
+    assert len(report["added"]) == 2
+
+    data = client.get("/api/facts", headers=HEADERS).json()
+    assert data["reports"][0]["trigger"] == "manual" and data["pending"] == 0
+    fact = next(f for f in data["facts"] if "Gilroy" in f["text"])
+    client.patch(f"/api/facts/{fact['id']}", json={"text": "The user lives in Gilroy, CA.", "pinned": True},
+                 headers=HEADERS)
+    manual = client.post("/api/facts", json={"text": "The user prefers short answers.", "category": "preference"},
+                         headers=HEADERS).json()
+    facts = client.get("/api/facts", headers=HEADERS).json()["facts"]
+    assert facts[0]["text"] == "The user lives in Gilroy, CA." and facts[0]["pinned"] == 1
+    assert any(f["origin"] == "you" for f in facts)
+    client.delete(f"/api/facts/{manual['id']}", headers=HEADERS)
+    assert len(client.get("/api/facts", headers=HEADERS).json()["facts"]) == 2

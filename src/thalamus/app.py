@@ -81,6 +81,17 @@ class RemoteRequest(BaseModel):
     passcode: str = ""
 
 
+class FactCreate(BaseModel):
+    text: str
+    category: str = "other"
+
+
+class FactUpdate(BaseModel):
+    text: str | None = None
+    pinned: bool | None = None
+    category: str | None = None
+
+
 PUBLIC_PATHS = {"/login", "/manifest.webmanifest", "/icon-180.png", "/icon-512.png"}
 PC_ONLY = {"/api/setup", "/api/remote"}  # settings and keys can only be changed on the PC
 MANIFEST = {
@@ -154,11 +165,29 @@ def create_app(
     token: str | None = None,
     remote_active: bool = False,
     port: int = 8765,
+    sleep_check_seconds: float = 60.0,
 ) -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
+        watcher = asyncio.create_task(sleep_when_idle()) if sleep_check_seconds else None
         yield
+        if watcher:
+            watcher.cancel()
         await reset_brain()
+
+    async def sleep_when_idle() -> None:
+        """Consolidate memories in the background once THALAMUS has been idle for a while."""
+        while True:
+            await asyncio.sleep(sleep_check_seconds)
+            current: Brain | None = app.state.brain
+            if current is None or lock.locked():
+                continue
+            try:
+                if current.sleep_due():
+                    async with lock:
+                        await current.sleep(trigger="idle")
+            except Exception:  # noqa: BLE001 - a failed sleep must never take the server down
+                continue
 
     app = FastAPI(title="THALAMUS", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.token = token or secrets.token_urlsafe(24)
@@ -376,6 +405,58 @@ def create_app(
     async def mind() -> dict:
         current: Brain | None = app.state.brain
         return current.snapshot() if current is not None else {}
+
+    @contextlib.contextmanager
+    def memory_store():
+        """The running brain's memory, or the memory file itself if no brain is loaded yet."""
+        current: Brain | None = app.state.brain
+        if current is not None:
+            yield current.memory
+            return
+        store = MemoryStore(settings.memory_path)
+        try:
+            yield store
+        finally:
+            store.close()
+
+    @app.get("/api/facts")
+    async def facts() -> dict:
+        from thalamus.regions.sleep import pending_episodes
+
+        with memory_store() as store:
+            return {
+                "facts": [dict(row) for row in store.facts()],
+                "reports": store.sleep_reports(3),
+                "pending": pending_episodes(store),
+            }
+
+    @app.post("/api/facts")
+    async def add_fact(body: FactCreate) -> dict:
+        if not body.text.strip():
+            return JSONResponse({"error": {"message": "Write the fact first."}}, status_code=400)
+        with memory_store() as store:
+            return {"id": store.add_fact(body.text, body.category, [], origin="you")}
+
+    @app.patch("/api/facts/{fact_id}")
+    async def update_fact(fact_id: int, body: FactUpdate) -> dict:
+        with memory_store() as store:
+            store.update_fact(fact_id, text=body.text, pinned=body.pinned, category=body.category)
+        return {"ok": True}
+
+    @app.delete("/api/facts/{fact_id}")
+    async def delete_fact(fact_id: int) -> dict:
+        with memory_store() as store:
+            store.retire_fact(fact_id)
+        return {"ok": True}
+
+    @app.post("/api/sleep")
+    async def sleep_now() -> JSONResponse:
+        async with lock:
+            try:
+                report = await brain().sleep(trigger="manual", force=True)
+            except Exception as exc:  # noqa: BLE001
+                return error(exc)
+        return JSONResponse(report)
 
     @app.get("/api/memory")
     async def memory() -> dict:
