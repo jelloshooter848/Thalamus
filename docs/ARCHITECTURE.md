@@ -147,5 +147,13 @@ they never make decisions on their own.
   wording.
 - **The budget is a hard limit.** When it runs out, the hyperdirect STOP ends generation with no
   model call.
+- **Phone access is private by default.**
+  - The server listens only on 127.0.0.1 unless phone access is turned on.
+  - With it on, devices other than the PC are refused unless they come from Tailscale's private
+    address range (`100.64.0.0/10`).
+  - They must log in with a passcode. It is stored as a salted scrypt hash, and repeated wrong
+    passcodes lock the device out for a while.
+  - A login gives a signed, HttpOnly session cookie. Changing the passcode logs every phone out.
+  - Keys and settings can only be changed from the PC (`thalamus/remote.py`).
 - **JEV is required.** Without `TYPESAFE_API_KEY` the brain refuses to start; there is no silent
   substitute.

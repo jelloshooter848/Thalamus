@@ -52,7 +52,9 @@ def test_foreign_host_is_rejected(tmp_path):
 def test_status_reports_missing_keys(tmp_path):
     client, _ = make_client(tmp_path)
     status = client.get("/api/status", headers=HEADERS).json()
-    assert status == {"typesafe": False, "anthropic": False, "workspace": False, "web": False, "ready": False}
+    assert status == {
+        "typesafe": False, "anthropic": False, "workspace": False, "web": False, "ready": False, "local": True
+    }
 
 
 def test_setup_saves_keys_only_when_checks_pass(tmp_path):

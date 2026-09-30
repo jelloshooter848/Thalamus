@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="THALAMUS">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#6d5dfc">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<title>THALAMUS</title>
+<style>
+  :root { --bg: #f6f6f9; --panel: #fff; --panel-2: #f0f0f5; --border: #e2e2ea; --text: #1b1b24; --muted: #6a6a7a; --accent: #6d5dfc; --danger: #d23b3b; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111117; --panel: #1a1a22; --panel-2: #22222c; --border: #2e2e3a; --text: #ececf3; --muted: #9a9aad; --accent: #8b7eff; --danger: #ff6b6b; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 16px; }
+  .card { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 28px 22px; text-align: center; }
+  img { width: 64px; height: 64px; border-radius: 16px; }
+  h1 { font-size: 20px; letter-spacing: .08em; margin: 12px 0 4px; }
+  p { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+  input { width: 100%; font: inherit; font-size: 18px; text-align: center; letter-spacing: .15em; padding: 12px; border-radius: 12px;
+          border: 1px solid var(--border); background: var(--panel-2); color: inherit; outline: none; }
+  input:focus { border-color: var(--accent); }
+  button { width: 100%; margin-top: 12px; font: inherit; font-weight: 600; padding: 12px; border: 0; border-radius: 12px; background: var(--accent); color: #fff; cursor: pointer; }
+  button:disabled { opacity: .6; }
+  #msg { color: var(--danger); min-height: 1.5em; margin-top: 10px; font-size: 14px; }
+</style>
+</head>
+<body>
+<form class="card" id="form">
+  <img src="/icon-180.png" alt="">
+  <h1>THALAMUS</h1>
+  <p>Enter the passcode you chose on your PC.</p>
+  <input id="passcode" type="password" autocomplete="current-password" inputmode="text" autofocus aria-label="Passcode">
+  <button id="go" type="submit">Unlock</button>
+  <div id="msg" role="alert"></div>
+</form>
+<script>
+document.getElementById("form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const go = document.getElementById("go");
+  go.disabled = true;
+  document.getElementById("msg").textContent = "";
+  try {
+    const res = await fetch("/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passcode: document.getElementById("passcode").value }),
+    });
+    if (res.ok) { location.replace("/"); return; }
+    const data = await res.json().catch(() => ({}));
+    document.getElementById("msg").textContent = (data.error && data.error.message) || "Couldn't log in.";
+  } catch (e) {
+    document.getElementById("msg").textContent = "Can't reach THALAMUS. Is it running on your PC?";
+  }
+  go.disabled = false;
+});
+</script>
+</body>
+</html>

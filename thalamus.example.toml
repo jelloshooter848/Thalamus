@@ -29,3 +29,9 @@ max_results = 6
 admit = 4                     # most results allowed into awareness
 depth = "basic"               # "advanced" costs 2 Tavily credits per search
 price_per_call_usd = 0.008
+
+[remote]
+port = 8765                   # fixed, so the phone's home-screen icon keeps working
+session_days = 90             # how long a phone stays logged in
+keep_awake = true             # keep the PC awake while phone access is on
+allow_lan = false             # also accept devices on the home network (Tailscale is always allowed)

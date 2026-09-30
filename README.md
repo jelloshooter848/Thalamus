@@ -64,6 +64,22 @@ reply shows its sources as links. Paste a link and THALAMUS reads that page. The
 panel shows every search decision, the query, and which results were let in or turned away.
 Without a Tavily key, THALAMUS stays offline and says so.
 
+**Use it from your phone.** THALAMUS keeps running on your PC, with the same memory, and your phone
+connects to it privately:
+1. Install **Tailscale** (free, tailscale.com/download) on the PC and your phone, and sign in to
+   the same account on both. It's a private, encrypted network between your own devices, so
+   THALAMUS is never exposed to the public internet.
+2. On the PC, open **Settings → Phone access**, tick **Allow my phone to connect**, choose a
+   passcode, and click **Save**.
+3. Close the THALAMUS window and double-click the launcher again. If Windows asks whether Python
+   may use the network, allow it on **private networks**.
+4. Scan the QR code shown in **Settings** with your iPhone camera and enter the passcode. Then tap
+   **Share → Add to Home Screen** for a THALAMUS app icon.
+
+Your phone stays logged in for 90 days. Changing the passcode logs it out. Keys and settings can
+only be changed on the PC. While phone access is on, the PC is kept awake so your phone can
+always reach it, so keep it plugged in.
+
 **Conversations work like a person's.** A conversation starts fresh when you click **New
 conversation** or after 30 minutes without a message. After that, THALAMUS reaches earlier
 conversations only through its long-term memory. Use the **Memory** button to see or erase that
