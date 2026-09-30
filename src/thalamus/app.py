@@ -77,6 +77,7 @@ def serialize(response: Response) -> dict:
         "path": response.path,
         "context": response.context,
         "cost_usd": response.cost_usd,
+        "cost_breakdown": response.cost_breakdown,
         "sources": response.sources,
         "modulators": response.modulators,
         "trace": [asdict(event) for event in response.trace.events],
