@@ -290,6 +290,7 @@
 <script>
 const TOKEN = "__THALAMUS_TOKEN__";
 const $ = (id) => document.getElementById(id);
+const SERVICES = { jev: "JEV", claude: "Claude", tavily: "Web search (Tavily)" };
 const MODS = [
   ["dopamine", "Dopamine", "var(--da)"],
   ["norepinephrine", "Norepinephrine", "var(--ne)"],
@@ -526,6 +527,7 @@ function renderBrain(r) {
     ["JEV latency", sweep.latency_ms != null ? `${sweep.latency_ms} ms` : "–"],
     ["Memory gate", wm ? `${wm.questions} checked, ${wm.latency_ms} ms` : "–"],
     ["This turn", `$${r.cost_usd.toFixed(5)}`],
+    ...Object.entries(r.cost_breakdown || {}).map(([k, v]) => [`· ${SERVICES[k] || k}`, `$${v.toFixed(5)}`]),
   ];
   $("bCost").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
   $("bTrace").textContent = t.map((e) => `${e.region} · ${e.event}\n${JSON.stringify(e.data, null, 1)}`).join("\n\n");
@@ -595,7 +597,7 @@ async function loadMind() {
     <div class="section">
       <h3>Brain state</h3>
       ${MODS.map(([k, label, color]) => bar(label, m.modulators[k] ?? 0, color)).join("")}
-      <dl class="kv" style="margin-top:8px"><dt>Budget used</dt><dd>$${b.spent_usd.toFixed(4)} of $${b.limit_usd.toFixed(2)}</dd></dl>
+      <dl class="kv" style="margin-top:8px"><dt>Budget used</dt><dd>$${b.spent_usd.toFixed(4)} of $${b.limit_usd.toFixed(2)}</dd>${Object.entries(b.by_service || {}).map(([k, v]) => `<dt>· ${SERVICES[k] || k}</dt><dd>$${v.toFixed(4)}</dd>`).join("")}</dl>
     </div>
     <button class="linkish" type="button" id="mindMemoryLink">Open long-term memory →</button>`;
   $("mindMemoryLink").addEventListener("click", () => $("memoryBtn").click());

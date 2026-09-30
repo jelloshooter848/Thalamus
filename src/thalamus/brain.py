@@ -46,6 +46,7 @@ class Response:
     cost_usd: float
     modulators: dict[str, float]
     sources: list[dict]
+    cost_breakdown: dict[str, float]
 
 
 class Brain:
@@ -133,7 +134,11 @@ class Brain:
             "recall": self.prefrontal.working_memory.last_gate,
             "web": self.web.last,
             "modulators": dict(self.modulators.levels),
-            "budget": {"spent_usd": self.homeostasis.spent_usd, "limit_usd": self.settings.budget.session_usd},
+            "budget": {
+                "spent_usd": self.homeostasis.spent_usd,
+                "limit_usd": self.settings.budget.session_usd,
+                "by_service": dict(self.homeostasis.by_service),
+            },
         }
 
     async def think(self, message: str) -> Response:
@@ -147,6 +152,7 @@ class Brain:
         if rolled_over:
             trace.log("hippocampus", "new_conversation", reason=f"idle for over {idle / 60:.0f} minutes")
         spent_before = self.homeostasis.spent_usd
+        by_service_before = dict(self.homeostasis.by_service)
         self.modulators.relax()
         ctx = CycleContext(
             turn=self._turn,
@@ -229,7 +235,18 @@ class Brain:
         self._last_action = self.basal_ganglia.remember(ctx, ctx.arbitration.path)
         self._last_context = ctx.context_label
         trace.log("neuromodulators", "levels", **{k: round(v, 3) for k, v in self.modulators.levels.items()})
-        trace.log("hypothalamus", "budget", spent_usd=round(self.homeostasis.spent_usd, 6))
+        breakdown = {
+            service: round(total - by_service_before.get(service, 0.0), 6)
+            for service, total in self.homeostasis.by_service.items()
+            if total - by_service_before.get(service, 0.0) > 0
+        }
+        trace.log(
+            "hypothalamus",
+            "budget",
+            spent_usd=round(self.homeostasis.spent_usd, 6),
+            this_turn=breakdown,
+            **({"unpriced_models": sorted(self.homeostasis.unpriced)} if self.homeostasis.unpriced else {}),
+        )
 
         return Response(
             text=reply,
@@ -240,6 +257,7 @@ class Brain:
             cost_usd=cost,
             modulators=dict(self.modulators.levels),
             sources=sources,
+            cost_breakdown=breakdown,
         )
 
     def _account_jev(self, decision: Decision, trace: CycleTrace, call: str, questions: int) -> None:
