@@ -102,3 +102,19 @@ def test_memory_list_and_clear(tmp_path):
     assert any(e["text"] == "Hi, my name is Riley" for e in memory["episodes"])
     client.post("/api/memory/clear", json={}, headers=HEADERS)
     assert client.get("/api/memory", headers=HEADERS).json()["episodes"] == []
+
+
+def test_history_mind_and_new_conversation(tmp_path):
+    client, _ = make_client(tmp_path)
+    assert client.get("/api/history", headers=HEADERS).json() == {"turns": []}
+    assert client.get("/api/mind", headers=HEADERS).json() == {}
+
+    client.post("/api/chat", json={"message": "hello!"}, headers=HEADERS)
+    turns = client.get("/api/history", headers=HEADERS).json()["turns"]
+    assert [t["role"] for t in turns] == ["user", "assistant"]
+    assert turns[1]["meta"]["path"] == "fast"
+    assert len(client.get("/api/mind", headers=HEADERS).json()["buffer"]) == 2
+
+    client.post("/api/conversation/new", json={}, headers=HEADERS)
+    assert client.get("/api/history", headers=HEADERS).json() == {"turns": []}
+    assert client.get("/api/mind", headers=HEADERS).json()["buffer"] == []

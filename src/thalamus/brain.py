@@ -7,8 +7,10 @@ memory → global workspace competition → select action → arbitrate fast/slo
 
 from __future__ import annotations
 
+import time
 import uuid
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 
 from thalamus.config import Settings, require_jev_key
 from thalamus.core.homeostasis import Homeostasis
@@ -25,7 +27,7 @@ from thalamus.regions.amygdala import Amygdala
 from thalamus.regions.basal_ganglia import BasalGanglia
 from thalamus.regions.broca import Broca
 from thalamus.regions.hippocampus import Hippocampus
-from thalamus.regions.prefrontal import PrefrontalCortex
+from thalamus.regions.prefrontal import PrefrontalCortex, buffer_window
 from thalamus.regions.sensory_cortex import SensoryCortex
 from thalamus.regions.thalamus import Thalamus
 
@@ -49,13 +51,17 @@ class Brain:
         jev: DecisionProvider,
         cortex: LanguageProvider,
         memory: MemoryStore,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self.settings = settings
         self.jev = jev
         self.cortex = cortex
         self.memory = memory
+        self.clock = clock
         self.session = uuid.uuid4().hex[:12]
         self.history: list[Turn] = []
+        self.conversation_started = clock()
+        self.last_activity: float | None = None
         self.modulators = Neuromodulators()
         self.homeostasis = Homeostasis(settings.budget)
         self.workspace = GlobalWorkspace(settings.workspace_capacity)
@@ -80,9 +86,55 @@ class Brain:
         self._last_action: LastAction | None = None
         self._last_context: str | None = None
 
+    def new_conversation(self) -> None:
+        """Start a fresh conversation. Long-term memory and learned values are kept, so earlier
+        conversations stay reachable, but only through recall, the way a person's are."""
+        self.session = uuid.uuid4().hex[:12]
+        self.history = []
+        self.conversation_started = self.clock()
+        self.last_activity = None
+        self.prefrontal.working_memory.reset()
+        self._turn = 0
+        self._last_action = None
+        self._last_context = None
+
+    def snapshot(self) -> dict:
+        """What the mind currently holds, for the Mind view."""
+        idle_limit = self.settings.conversation_idle_minutes * 60
+        return {
+            "conversation": {
+                "id": self.session,
+                "started": self.conversation_started,
+                "last_activity": self.last_activity,
+                "turns": len(self.history) // 2,
+                "idle_minutes": self.settings.conversation_idle_minutes,
+                "rolls_over_at": self.last_activity + idle_limit if self.last_activity else None,
+            },
+            "buffer": [
+                {"role": turn.role, "content": turn.content}
+                for turn in buffer_window(self.history, self.settings.history_turns)
+            ],
+            "working_memory": [
+                asdict(item)
+                for item in sorted(
+                    self.prefrontal.working_memory.items.values(), key=lambda item: item.strength, reverse=True
+                )
+            ],
+            "recall": self.prefrontal.working_memory.last_gate,
+            "modulators": dict(self.modulators.levels),
+            "budget": {"spent_usd": self.homeostasis.spent_usd, "limit_usd": self.settings.budget.session_usd},
+        }
+
     async def think(self, message: str) -> Response:
+        now = self.clock()
+        idle = self.settings.conversation_idle_minutes * 60
+        rolled_over = self.last_activity is not None and now - self.last_activity > idle
+        if rolled_over:
+            self.new_conversation()
         self._turn += 1
         trace = CycleTrace(turn=self._turn)
+        if rolled_over:
+            trace.log("hippocampus", "new_conversation", reason=f"idle for over {idle / 60:.0f} minutes")
         spent_before = self.homeostasis.spent_usd
         self.modulators.relax()
         ctx = CycleContext(
@@ -98,6 +150,8 @@ class Brain:
             trace=trace,
             last_action=self._last_action,
             previous_context=self._last_context,
+            now=now,
+            conversation_started=self.conversation_started,
         )
 
         # Sense, then one parallel System-1 sweep shared by every subcortical region.
@@ -144,7 +198,10 @@ class Brain:
 
         # Learn: remember the exchange and what was done, for next turn's critic.
         self.hippocampus.encode(ctx, reply)
-        self.history += [Turn("user", message), Turn("assistant", reply)]
+        cost = self.homeostasis.spent_usd - spent_before
+        meta = {"path": ctx.arbitration.path, "context": ctx.context_label, "cost_usd": cost}
+        self.history += [Turn("user", message), Turn("assistant", reply, meta)]
+        self.last_activity = now
         self._last_action = self.basal_ganglia.remember(ctx, ctx.arbitration.path)
         self._last_context = ctx.context_label
         trace.log("neuromodulators", "levels", **{k: round(v, 3) for k, v in self.modulators.levels.items()})
@@ -156,7 +213,7 @@ class Brain:
             path=ctx.arbitration.path,
             context=ctx.context_label,
             trace=trace,
-            cost_usd=self.homeostasis.spent_usd - spent_before,
+            cost_usd=cost,
             modulators=dict(self.modulators.levels),
         )
 

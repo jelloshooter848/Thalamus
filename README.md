@@ -48,8 +48,17 @@ other AIs (vision, hearing, graph memory, sleep consolidation).
      with `wrkspc_`.
 
    Click **Test & save**. Keys are checked live, then saved only on your computer, in `.env`.
-4. **Chat.** The **Brain activity** panel shows every cognitive cycle: which regions fired, fast
-   or slow thinking, neuromodulator levels, memories that surfaced, and cost.
+4. **Chat.** The side panel has two tabs:
+   - **Brain activity** shows every cognitive cycle: which regions fired, fast or slow thinking,
+     neuromodulator levels, memories that surfaced, and cost.
+   - **Mind** shows what THALAMUS is holding right now: the conversation buffer Claude is sent
+     word for word, the recollections in working memory and how strong they are, and which
+     memories the hippocampus offered for your last message, including the ones JEV turned away.
+
+**Conversations work like a person's.** A conversation starts fresh when you click **New
+conversation** or after 30 minutes without a message. After that, THALAMUS reaches earlier
+conversations only through its long-term memory. Use the **Memory** button to see or erase that
+memory.
 
 **What the launcher does the first time:**
 - It finds Python 3.11 or newer.

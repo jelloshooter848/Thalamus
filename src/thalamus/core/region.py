@@ -25,6 +25,7 @@ from thalamus.providers.base import Decision
 class Turn:
     role: str  # "user" | "assistant"
     content: str
+    meta: dict[str, Any] | None = None  # how an assistant turn was produced (path, context, cost)
 
 
 @dataclass
@@ -71,6 +72,8 @@ class CycleContext:
     trace: CycleTrace
     last_action: LastAction | None = None
     previous_context: str | None = None
+    now: float = 0.0
+    conversation_started: float = 0.0
 
     # Filled in as the cycle runs.
     state: dict[str, Any] = field(default_factory=dict)  # JEV-facing structured percept

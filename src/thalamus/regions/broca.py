@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from thalamus.core.region import CycleContext
 from thalamus.providers.base import Generation, LanguageProvider
-from thalamus.regions.prefrontal import PERSONA, conversation_messages, render_awareness
+from thalamus.regions.prefrontal import conversation_messages, render_awareness, system_prompt
 
 ACTION_GUIDANCE = {
     "respond": "Reply naturally and concisely.",
@@ -37,10 +37,8 @@ class Broca:
         if draft is not None:
             return draft.text or REFUSAL_FALLBACK, None
 
-        system = "\n\n".join(
-            part
-            for part in (PERSONA, ACTION_GUIDANCE.get(ctx.action, ACTION_GUIDANCE["respond"]), render_awareness(ctx))
-            if part
+        system = system_prompt(
+            ctx, ACTION_GUIDANCE.get(ctx.action, ACTION_GUIDANCE["respond"]), render_awareness(ctx)
         )
         generation = await cortex.generate(
             tier="fast", system=system, messages=conversation_messages(ctx), max_tokens=2048

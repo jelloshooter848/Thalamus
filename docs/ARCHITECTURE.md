@@ -80,6 +80,22 @@ that dominate multi-agent systems.
 10. **Encode.** The exchange is stored with strength = importance × acetylcholine, plus arousal
     and |RPE|. The action and path are remembered for the next turn's critic.
 
+## Memory systems and the self-model
+
+| Store | Brain analogue | Lifetime | Visible in |
+|---|---|---|---|
+| Conversation buffer (last 6 exchanges) | Short-term memory | Until the conversation ends: **New conversation**, or 30 min idle | Mind tab |
+| Working memory (4 slots) | Prefrontal cortex (PBWM) | Decays each turn; wiped on a context switch | Mind tab |
+| Episodic memory | Hippocampus | Permanent (append-only), with a forgetting curve for recall | Memory button |
+| Learned values | Striatum | Permanent | Memory button |
+| Neuromodulator levels | Brainstem nuclei | Relax toward baseline every cycle | Both tabs |
+
+The cortex's prompt carries an accurate **self-model** of these systems (`SELF_MODEL` in
+`regions/prefrontal.py`), plus the current time. Without it, Claude falls back on a generic
+chatbot's beliefs about itself ("I have no memory between sessions") and invents features this
+system doesn't have. Recollections are labelled as memories from earlier conversations so the
+cortex can tell remembering apart from the current thread.
+
 ## Neuromodulators
 
 Each is a scalar in [0, 1] that relaxes toward its baseline every cycle. They tune thresholds;
