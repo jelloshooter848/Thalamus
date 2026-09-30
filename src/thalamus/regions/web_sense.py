@@ -113,6 +113,7 @@ class WebSense(BrainRegion):
 
         try:
             if url:
+                await ctx.status("Reading the page…")
                 found = await self.provider.read(url)
             else:
                 outcome.query_generation = await cortex.generate(
@@ -120,6 +121,7 @@ class WebSense(BrainRegion):
                 )
                 query = outcome.query_generation.text.strip().strip('"').splitlines()[0][:200] or ctx.message
                 topic = ctx.sweep.choices["web.topic"].choice
+                await ctx.status("Searching the web…")
                 found = await self.provider.search(query, topic=topic, max_results=ctx.settings.web.max_results)
             outcome.billable_calls = found.calls
         except Exception as error:  # noqa: BLE001 - a failed search must not break the conversation

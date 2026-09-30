@@ -235,7 +235,11 @@ class PrefrontalCortex:
             render_awareness(ctx),
         )
         generation = await cortex.generate(
-            tier="deep", system=system, messages=conversation_messages(ctx), max_tokens=16000
+            tier="deep",
+            system=system,
+            messages=conversation_messages(ctx),
+            max_tokens=16000,
+            on_text=ctx.on_text,
         )
         ctx.trace.log(
             self.name,

@@ -38,6 +38,7 @@ async def test_memory_from_a_past_session_reaches_awareness(store):
     first = Brain(Settings(), jev=FakeJev(scenario_rules), cortex=FakeCortex(), memory=store)
     await first.think("Hi, my name is Riley")
     second = Brain(Settings(), jev=FakeJev(scenario_rules), cortex=FakeCortex(), memory=store)
+    second.new_conversation()  # a later, separate conversation
     response = await second.think("Do you remember my name?")
     system = second.cortex.calls[0]["system"]
     assert "my name is Riley" in system

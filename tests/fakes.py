@@ -62,10 +62,16 @@ class FakeJev:
 class FakeCortex:
     calls: list[dict] = field(default_factory=list)
 
-    async def generate(self, *, tier: str, system: str, messages: list[dict], max_tokens: int) -> Generation:
-        self.calls.append({"tier": tier, "system": system, "messages": messages})
+    async def generate(
+        self, *, tier: str, system: str, messages: list[dict], max_tokens: int, on_text=None
+    ) -> Generation:
+        self.calls.append({"tier": tier, "system": system, "messages": messages, "streamed": on_text is not None})
         model = "claude-opus-5-5" if tier == "deep" else "claude-haiku-4-5"
-        return Generation(text=f"[{tier}] reply", model=model, input_tokens=500, output_tokens=100)
+        text = f"[{tier}] reply"
+        if on_text is not None:
+            for chunk in (text[:4], text[4:]):
+                await on_text(chunk)
+        return Generation(text=text, model=model, input_tokens=500, output_tokens=100)
 
     async def aclose(self) -> None:
         pass

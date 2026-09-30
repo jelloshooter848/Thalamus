@@ -28,7 +28,7 @@ input ─▶ Sensory cortex ─▶ THALAMUS (gate · context · surprise) ─▶
    dopamine · norepinephrine · serotonin · acetylcholine + hypothalamic budget tune every threshold
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how each mechanism works, and
+What's coming next: [docs/ROADMAP.md](docs/ROADMAP.md). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how each mechanism works, and
 [docs/RESEARCH.md](docs/RESEARCH.md) for the research behind the design and the roadmap for adding
 other AIs (vision, hearing, graph memory, sleep consolidation).
 
