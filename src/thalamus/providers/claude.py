@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -13,12 +14,20 @@ from thalamus.providers.base import Generation, Tier
 # Models that accept server-side refusal fallbacks ("default" routes by refusal category).
 _FALLBACK_PREFIXES = ("claude-opus-5", "claude-fable-5", "claude-sonnet-5-5")
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
+WORKSPACE_ENV = "ANTHROPIC_WORKSPACE_ID"
+
+
+def make_client(api_key: str | None = None, workspace_id: str | None = None) -> anthropic.AsyncAnthropic:
+    """Anthropic client; keys that work across workspaces must name one on every request."""
+    workspace_id = workspace_id or os.environ.get(WORKSPACE_ENV, "").strip() or None
+    headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
+    return anthropic.AsyncAnthropic(api_key=api_key or None, default_headers=headers)
 
 
 class ClaudeProvider:
     def __init__(self, models: Models, client: anthropic.AsyncAnthropic | None = None) -> None:
         self._models = models
-        self._client = client or anthropic.AsyncAnthropic()
+        self._client = client or make_client()
 
     async def generate(
         self, *, tier: Tier, system: str, messages: list[dict[str, Any]], max_tokens: int

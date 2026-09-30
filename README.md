@@ -32,22 +32,45 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how each mechanism works, a
 [docs/RESEARCH.md](docs/RESEARCH.md) for the research behind the design and the roadmap for adding
 other AIs (vision, hearing, graph memory, sleep consolidation).
 
-## Quick start
+## Quick start (no terminal needed)
 
-```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env        # add TYPESAFE_API_KEY and ANTHROPIC_API_KEY
-thalamus doctor             # checks both keys and measures JEV latency
-thalamus chat --trace       # talk to it and watch each cognitive cycle
-```
+1. **Download** the repo: the green **Code** button → **Download ZIP**, then unzip it. You can also
+   clone it.
+2. **Double-click the launcher** in the Thalamus folder:
+   - **Windows:** `Start-THALAMUS.bat`
+   - **Mac:** `Start-THALAMUS.command`. If macOS says it can't be opened, right-click it → **Open**
+     → **Open**.
+   - **Linux:** run `./Start-THALAMUS.command` from a terminal.
+3. **Enter your keys.** THALAMUS opens in your browser and asks for them:
+   - **TypeSafe API key** (required): powers JEV.
+   - **Anthropic API key**: powers Claude, from console.anthropic.com → Settings → API Keys.
+   - **Workspace ID**: only if your Anthropic key says it "works across workspaces". The ID starts
+     with `wrkspc_`.
+
+   Click **Test & save**. Keys are checked live, then saved only on your computer, in `.env`.
+4. **Chat.** The **Brain activity** panel shows every cognitive cycle: which regions fired, fast
+   or slow thinking, neuromodulator levels, memories that surfaced, and cost.
+
+**What the launcher does the first time:**
+- It finds Python 3.11 or newer.
+  - On Windows it installs Python with `winget` if it's missing.
+  - Otherwise it opens python.org for you.
+- It creates a private environment (`.venv`) and installs THALAMUS.
+
+After that, it starts right away. It only reinstalls when an update changes the dependencies. Keep
+the launcher window open while you chat; close it to stop THALAMUS.
 
 **A TypeSafe API key is required.** JEV runs every System-1 region and there is no substitute
-model. Without `TYPESAFE_API_KEY`, THALAMUS refuses to start and exits with code 2.
+model, so THALAMUS won't think without it.
 
-Other commands:
+### Advanced: terminal use
 
 ```bash
+python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+thalamus web                # the browser app
+thalamus chat --trace       # text chat in the terminal
+thalamus doctor             # check keys and connectivity
 thalamus memory list        # episodes and the striatum's learned values
 thalamus memory clear       # forget everything
 pytest                      # offline test suite (test-only fakes, no network)

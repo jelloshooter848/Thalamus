@@ -1,10 +1,9 @@
-"""Command line: `thalamus chat`, `thalamus doctor`, `thalamus memory ...`."""
+"""Command line: `thalamus web`, `thalamus chat`, `thalamus doctor`, `thalamus memory ...`."""
 
 from __future__ import annotations
 
 import asyncio
 import os
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +15,7 @@ from rich.tree import Tree
 from thalamus.brain import Brain, Response, create_brain
 from thalamus.config import JEV_KEY_ENV, MissingJevKeyError, Settings, load_dotenv, load_settings
 from thalamus.core.memory_store import MemoryStore
+from thalamus.health import explain, run_checks
 
 app = typer.Typer(help="THALAMUS: a brain-modelled agent (JEV System 1 + Claude System 2).", no_args_is_help=True)
 memory_app = typer.Typer(help="Inspect or clear long-term memory.")
@@ -72,7 +72,12 @@ def chat(
                     break
                 if not message.strip():
                     continue
-                response = await brain.think(message)
+                try:
+                    response = await brain.think(message)
+                except Exception as error:  # noqa: BLE001 - keep chatting after provider errors
+                    problem = explain(error)
+                    console.print(f"[bold red]{problem.message}[/] [dim]{problem.hint}[/]\n")
+                    continue
                 if trace:
                     console.print(render_trace(response))
                 console.print(f"[bold green]thalamus ›[/] {response.text}\n")
@@ -82,6 +87,17 @@ def chat(
             brain.memory.close()
 
     asyncio.run(loop())
+
+
+@app.command()
+def web(
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open a browser tab."),
+    config: Optional[Path] = ConfigOption,
+) -> None:
+    """Open THALAMUS in your web browser (setup + chat + brain activity)."""
+    from thalamus.app import main
+
+    main(open_browser=not no_browser, config=config)
 
 
 @app.command()
@@ -95,40 +111,18 @@ def doctor(config: Optional[Path] = ConfigOption) -> None:
     brain = _brain(settings)
 
     async def check() -> int:
-        from typesafe_sdk import Noul
-
-        failures = 0
-        try:
-            decision = await brain.jev.decide(
-                {"text": "Hello there!"}, {"greeting": Noul(instructions="Is text a greeting?")}
-            )
-            console.print(
-                f"[green]✓[/] JEV ({settings.models.jev}) answered in {decision.latency_ms:.0f} ms "
-                f"(P(greeting)={decision.nouls['greeting'].p:.2f})"
-            )
-        except Exception as error:  # noqa: BLE001 - report any failure to the user
-            failures += 1
-            console.print(f"[red]✗[/] JEV: {error}")
-        for tier in ("fast", "deep"):
-            started = time.perf_counter()
-            try:
-                generation = await brain.cortex.generate(
-                    tier=tier,
-                    system="Reply with the single word: ready",
-                    messages=[{"role": "user", "content": "Status?"}],
-                    max_tokens=64 if tier == "fast" else 2048,
-                )
-                console.print(
-                    f"[green]✓[/] Claude {tier} ({generation.model}) replied in "
-                    f"{(time.perf_counter() - started) * 1000:.0f} ms"
-                )
-            except Exception as error:  # noqa: BLE001
-                failures += 1
-                console.print(f"[red]✗[/] Claude {tier}: {error}")
+        checks = await run_checks(brain.jev, brain.cortex, settings.models.jev)
+        for check in checks:
+            if check.ok:
+                console.print(f"[green]✓[/] {check.name}: {check.detail}")
+            else:
+                console.print(f"[red]✗[/] {check.name}: {check.problem.message}")
+                if check.problem.hint:
+                    console.print(f"    [dim]{check.problem.hint}[/]")
         await brain.jev.aclose()
         await brain.cortex.aclose()
         brain.memory.close()
-        return failures
+        return sum(not check.ok for check in checks)
 
     if asyncio.run(check()):
         raise typer.Exit(code=1)

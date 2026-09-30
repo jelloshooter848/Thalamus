@@ -112,6 +112,23 @@ def load_dotenv(path: Path = Path(".env")) -> None:
             os.environ.setdefault(key.strip(), value)
 
 
+def save_env(values: dict[str, str], path: Path = Path(".env")) -> None:
+    """Set KEY=VALUE pairs in .env (updating in place, keeping other lines) and in this process."""
+    lines = path.read_text().splitlines() if path.is_file() else []
+    pending = {key: value.strip() for key, value in values.items()}
+    for i, line in enumerate(lines):
+        key = line.split("=", 1)[0].strip()
+        if "=" in line and not line.lstrip().startswith("#") and key in pending:
+            lines[i] = f"{key}={pending.pop(key)}"
+    lines += [f"{key}={value}" for key, value in pending.items()]
+    path.write_text("\n".join(lines) + "\n")
+    for key, value in values.items():
+        if value.strip():
+            os.environ[key] = value.strip()
+        else:
+            os.environ.pop(key, None)
+
+
 def load_settings(path: Path | None = None) -> Settings:
     settings = Settings()
     path = path or Path("thalamus.toml")
