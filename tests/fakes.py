@@ -77,6 +77,10 @@ class FakeCortex:
     async def generate_json(self, *, tier, system, messages, schema, max_tokens):
         self.calls.append({"tier": tier, "system": system, "messages": messages, "json": True})
         content = messages[-1]["content"]
+        if "lines" in schema.get("properties", {}):  # email triage: one reason line per surfaced email
+            ids = re.findall(r"\[(e\d+)\]", content)
+            data = {"lines": [{"id": eid, "line": f"Why {eid} matters."} for eid in ids]}
+            return data, Generation(text=json.dumps(data), model="claude-haiku-4-5", input_tokens=600, output_tokens=80)
         if "existing_facts" in content:  # sleep consolidation: simple rule-based extraction
             data = {"operations": sleep_rules(json.loads(content))}
         else:  # a correction: "Old: ... User's correction: my name is actually X"
@@ -119,6 +123,27 @@ ACTIONS = ["respond", "clarify", "deliberate", "decline", "other"]
 
 def scenario_rules(state: Mapping[str, Any], questions: Mapping[str, Question]) -> dict[str, Result]:
     """Plausible JEV behaviour keyed off the message, for end-to-end cycle tests."""
+    if "emails" in state:  # email triage, keyed off words in each email
+        answers = {}
+        cats = list(__import__("thalamus.mail.triage", fromlist=["CATEGORIES"]).CATEGORIES)
+        for mid, mail in state["emails"].items():
+            text = f"{mail['subject']} {mail['text']}".lower()
+            category, importance, reply, scam = "other", 1, 0.1, 0.02
+            if "invoice" in text or "bill" in text:
+                category, importance = "bills_finance", 3
+            if "sale" in text or "% off" in text:
+                category, importance = "promotion", 0
+            if "verify your account" in text:
+                category, importance, scam = "other", 2, 0.95
+            if "dinner" in text or "can you" in text:
+                category, importance, reply = "personal", 3, 0.9
+            if "urgent" in text:
+                importance = 4
+            answers[f"{mid}.category"] = choice(category, cats)
+            answers[f"{mid}.importance"] = score(importance, 5)
+            answers[f"{mid}.reply"] = NoulResult(reply)
+            answers[f"{mid}.scam"] = NoulResult(scam)
+        return answers
     if "proposals" in state:  # sleep verification: supported if the fact's key word is in the evidence
         answers = {}
         for pid, proposal in state["proposals"].items():
@@ -188,6 +213,8 @@ def scenario_rules(state: Mapping[str, Any], questions: Mapping[str, Question]) 
         out["memory.edit"] = choice("forget", ["none", "forget", "correct"], 0.9)
     if "actually" in msg:
         out["memory.edit"] = choice("correct", ["none", "forget", "correct"], 0.9)
+    if "email" in msg or "inbox" in msg:
+        out["mail.asked"] = NoulResult(0.95)
     if "urgent" in msg:
         out["amygdala.urgency"] = score(2)
         out["amygdala.stakes"] = score(2)
@@ -221,3 +248,58 @@ class FakeSearch:
             note = "couldn't fetch the page itself (blocked); a search of the site found nothing either"
             return SearchOutcome(query=url, results=[], calls=4, note=note)
         return SearchOutcome(query=url, results=[WebResult("Shared page", url, "Full text of the shared page.")])
+
+
+def raw_email(subject, body, sender="Alex <alex@example.com>", to="me@example.com", when=None, html=False,
+              extra_headers=""):
+    from email.utils import formatdate
+
+    content_type = "text/html" if html else "text/plain"
+    return (
+        f"From: {sender}\r\nTo: {to}\r\nSubject: {subject}\r\nDate: {formatdate(when)}\r\n"
+        f"Message-ID: <{abs(hash(subject))}@example.com>\r\n{extra_headers}"
+        f"Content-Type: {content_type}; charset=utf-8\r\n\r\n{body}\r\n"
+    ).encode()
+
+
+@dataclass
+class FakeMailSource:
+    """Test-only mailbox: returns queued emails once, like new mail arriving."""
+
+    inbox: list = field(default_factory=list)
+    contacts: set = field(default_factory=set)
+    fail: Exception | None = None
+    tested: list = field(default_factory=list)
+
+    def test(self, account):
+        if self.fail:
+            raise self.fail
+        self.tested.append(account.address)
+        return "connected"
+
+    def fetch_new(self, account, *, my_addresses, contacts):
+        from thalamus.mail.imap import FetchResult
+        from thalamus.mail.parse import parse_message
+
+        if self.fail:
+            raise self.fail
+        new = [(uid, raw) for uid, raw in enumerate(self.inbox, start=1) if uid > account.last_uid]
+        emails = [parse_message(raw, uid, my_addresses=my_addresses, contacts=contacts) for uid, raw in new]
+        return FetchResult(emails=emails, last_uid=len(self.inbox), uidvalidity=1)
+
+    def sent_contacts(self, account):
+        return set(self.contacts)
+
+
+@dataclass
+class FakeNotifier:
+    sent: list = field(default_factory=list)
+
+    def __call__(self, topic, server):
+        notifier = self
+
+        class _Sender:
+            async def send(self, title, message, priority=3, click=None, tags=""):
+                notifier.sent.append({"topic": topic, "title": title, "message": message, "priority": priority})
+
+        return _Sender()

@@ -78,6 +78,7 @@ class CycleContext:
     now: float = 0.0
     conversation_started: float = 0.0
     web_enabled: bool = False
+    mail_accounts: list[str] = field(default_factory=list)
     on_text: TextSink | None = None
     on_status: StatusSink | None = None
 

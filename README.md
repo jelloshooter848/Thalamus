@@ -80,6 +80,22 @@ Your phone stays logged in for 90 days. Changing the passcode logs it out. Keys 
 only be changed on the PC. While phone access is on, the PC is kept awake so your phone can
 always reach it, so keep it plugged in.
 
+**It reads your email and tells you what matters.** Open **Settings → Email accounts** and add
+an account. Access is **read-only**: THALAMUS never sends, moves, deletes or marks anything as read.
+- **Gmail:** use an app password from myaccount.google.com/apppasswords (needs 2-Step Verification).
+- **iCloud / Yahoo:** use an app-specific password from your account's security page.
+- **Outlook / Hotmail / Live:** Microsoft needs a one-time free app registration. Settings shows the
+  five steps; then click **Sign in with Microsoft** and enter the code it shows.
+- **Other (ISP, work):** enter the IMAP server and your password.
+
+Passwords are kept in your system's credential store (Windows Credential Manager, macOS Keychain),
+never in `.env`. Every 15 minutes JEV sorts new mail by category, importance, whether it needs a
+reply and whether it's a scam. The **Email** button shows what's worth your attention, and you can
+ask in chat ("anything important in my email?"). Triage is capped at $0.50 a day.
+
+**Phone notifications** use the free ntfy app. In **Settings → Phone notifications**, turn them on,
+install ntfy on your phone and subscribe to the topic shown. Important email then pings your phone.
+
 **It builds a picture of you.** When THALAMUS has been idle for 30 minutes, it "sleeps": it replays
 recent conversations and distils lasting facts about you (your name, where you live, your projects,
 your preferences). JEV checks every fact against what you actually said before it's saved. Open

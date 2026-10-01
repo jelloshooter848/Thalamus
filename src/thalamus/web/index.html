@@ -151,6 +151,26 @@
   .fact button { border: 0; background: none; cursor: pointer; font-size: 15px; color: var(--muted); padding: 2px 4px; }
   .fact .pin.on { color: #e0a800; }
   .fact .del:hover { color: var(--danger); }
+  .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 6px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+  select { font: inherit; color: inherit; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
+  .accounts { list-style: none; padding: 0; margin: 0 0 14px; display: grid; gap: 6px; }
+  .accounts li { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); font-size: 14px; flex-wrap: wrap; }
+  .accounts .who { flex: 1; min-width: 160px; }
+  .accounts .err { color: var(--danger); font-size: 12px; width: 100%; }
+  .mails { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .mail { padding: 10px 12px; border-radius: 10px; background: var(--panel-2); display: grid; gap: 2px; }
+  .mail .top { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .mail .from { font-weight: 600; color: var(--text); }
+  .mail .subject { font-weight: 600; }
+  .mail .reason { font-size: 14px; }
+  .mail .actions { display: flex; gap: 10px; margin-top: 4px; font-size: 13px; }
+  .mail .actions a, .mail .actions button { color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; font: inherit; text-decoration: none; }
+  .lvl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 1px 7px; border-radius: 999px; }
+  .lvl.l4 { color: #fff; background: var(--danger); }
+  .lvl.l3 { color: var(--slow); background: color-mix(in srgb, var(--slow) 16%, transparent); }
+  .lvl.l2 { color: var(--ht); background: color-mix(in srgb, var(--ht) 14%, transparent); }
+  .lvl.l1, .lvl.l0 { color: var(--muted); background: var(--border); }
+  .lvl.scam { color: #fff; background: #7a1f1f; }
   .linkish { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; }
   .section { margin-bottom: 20px; }
   .section h3 { font-size: 13px; margin: 0 0 8px; }
@@ -216,6 +236,9 @@
     .logo { width: 22px; height: 22px; }
     .logo::after { inset: 7px; }
     .long { display: none; } .short { display: inline; }
+  }
+  @media (max-width: 480px) {
+    header .brand { display: none; }
     #messages, form.composer { padding-left: 16px; padding-right: 16px; }
   }
 </style>
@@ -229,6 +252,7 @@
   </div>
   <div class="spacer"></div>
   <button class="btn hidden" id="newConvBtn" type="button" title="Start fresh. THALAMUS keeps its long-term memory."><span class="long">New conversation</span><span class="short">New</span></button>
+  <button class="btn hidden" id="mailBtn" type="button"><span class="long">Email</span><span class="short">Mail</span><span class="badge hidden" id="mailBadge"></span></button>
   <button class="btn hidden" id="memoryBtn" type="button">Memory</button>
   <button class="btn hidden" id="panelBtn" type="button" aria-label="Show brain activity">Brain</button>
   <button class="btn hidden" id="settingsBtn" type="button"><span class="long">Settings</span><span class="short" aria-label="Settings">⚙</span></button>
@@ -303,6 +327,71 @@
         </div>
       </div>
     </div>
+
+    <div class="card phone hidden" id="mailCard">
+      <h2>Email accounts</h2>
+      <p class="lead">THALAMUS reads your email to tell you what matters. It's <strong>read-only</strong>: it never sends, moves, deletes or marks anything as read. Passwords are kept in Windows Credential Manager (or a private file), never in <code>.env</code>.</p>
+      <ul class="accounts" id="mailAccounts"></ul>
+      <form id="mailForm" autocomplete="off">
+        <div class="field">
+          <label for="mailProvider">Add an account</label>
+          <div class="input-wrap">
+            <select id="mailProvider">
+              <option value="gmail">Gmail</option>
+              <option value="outlook">Outlook / Hotmail / Live</option>
+              <option value="icloud">iCloud</option>
+              <option value="yahoo">Yahoo / AOL</option>
+              <option value="other">Other (IMAP)</option>
+            </select>
+            <input id="mailAddress" type="email" placeholder="you@example.com" spellcheck="false">
+          </div>
+          <div class="help" id="mailHelp"></div>
+        </div>
+        <div class="field" id="mailPasswordField">
+          <label for="mailPassword">App password</label>
+          <div class="input-wrap"><input id="mailPassword" type="password" spellcheck="false" placeholder="xxxx xxxx xxxx xxxx"><button class="btn reveal" type="button">Show</button></div>
+        </div>
+        <div class="field hidden" id="mailServerField">
+          <label for="mailHost">IMAP server <span class="muted">(and port)</span></label>
+          <div class="input-wrap"><input id="mailHost" placeholder="imap.yourprovider.com" spellcheck="false"><input id="mailPort" style="max-width:90px" placeholder="993"></div>
+        </div>
+        <div class="field hidden" id="mailClientField">
+          <label for="mailClientId">Microsoft app (client) ID</label>
+          <div class="input-wrap"><input id="mailClientId" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false"></div>
+          <ol class="steps">
+            <li>Go to <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Azure portal → App registrations</a> (sign in with your Microsoft account) and click <strong>New registration</strong>.</li>
+            <li>Name it "THALAMUS". Under <em>Supported account types</em> choose <strong>Accounts in any organizational directory and personal Microsoft accounts</strong>. Leave Redirect URI empty. Click <strong>Register</strong>.</li>
+            <li>Open <strong>Authentication</strong>, set <strong>Allow public client flows</strong> to <strong>Yes</strong>, and save.</li>
+            <li>Open <strong>API permissions → Add a permission → APIs my organization uses</strong>, search <strong>Office 365 Exchange Online</strong>, choose <strong>Delegated → IMAP.AccessAsUser.All</strong>, and add it.</li>
+            <li>Copy the <strong>Application (client) ID</strong> from <strong>Overview</strong> into the box above.</li>
+          </ol>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="mailAdd" type="submit">Test &amp; add</button>
+          <span class="muted" id="mailStatus"></span>
+        </div>
+        <div class="qr hidden" id="msCode"></div>
+      </form>
+    </div>
+
+    <div class="card phone hidden" id="notifyCard">
+      <h2>Phone notifications</h2>
+      <p class="lead">Get an alert on your phone when an important email arrives, through the free <strong>ntfy</strong> app.</p>
+      <ol class="steps">
+        <li>Install <strong>ntfy</strong> from the App Store (or Google Play).</li>
+        <li>Turn notifications on below. A private topic name is created for you.</li>
+        <li>In ntfy, tap <strong>+</strong>, enter the topic name exactly, and tap <strong>Subscribe</strong>.</li>
+        <li>Click <strong>Send test</strong>.</li>
+      </ol>
+      <label class="toggle"><input type="checkbox" id="notifyOn"> Send phone alerts for important email</label>
+      <div class="ts hidden" id="notifyTopic"></div>
+      <div class="row">
+        <button class="btn" id="notifyTest" type="button">Send test</button>
+        <span class="muted" id="notifyStatus"></span>
+      </div>
+      <p class="note" style="margin-top:10px">Alerts include the sender and subject and go through ntfy.sh. Anyone who knows the topic name could subscribe to it, so keep it private. Click "new topic" to change it.</p>
+      <button class="linkish" id="notifyNewTopic" type="button">New topic</button>
+    </div>
   </section>
 
   <!-- Chat -->
@@ -362,6 +451,22 @@
     </aside>
   </section>
 </main>
+
+<dialog id="mailDialog">
+  <div class="dialog-head">
+    <h2>Email</h2>
+    <button class="btn" id="mailCheck" type="button">Check now</button>
+    <button class="btn" id="closeMail" type="button">Close</button>
+  </div>
+  <div class="dialog-body">
+    <div class="tabs" role="tablist" style="max-width:360px">
+      <button type="button" role="tab" id="mailImportantBtn" aria-selected="true">Worth your attention</button>
+      <button type="button" role="tab" id="mailAllBtn" aria-selected="false">Everything (3 days)</button>
+    </div>
+    <div id="mailList"></div>
+    <p class="note" id="mailFooter" style="margin-top:12px"></p>
+  </div>
+</dialog>
 
 <dialog id="memoryDialog">
   <div class="dialog-head">
@@ -428,7 +533,11 @@ function show(view, status) {
   $("setupForm").classList.toggle("hidden", !local);
   $("remoteNote").classList.toggle("hidden", local);
   $("phoneCard").classList.toggle("hidden", !(view === "setup" && local && ready));
-  if (view === "setup" && local && ready) loadRemote();
+  if (view === "setup" && local && ready) { loadRemote(); loadMailSettings(); }
+  $("mailCard").classList.toggle("hidden", !(view === "setup" && local && ready));
+  $("notifyCard").classList.toggle("hidden", !(view === "setup" && local && ready));
+  $("mailBtn").classList.toggle("hidden", !ready);
+  if (ready) refreshMailBadge();
   if (view === "setup" && status) {
     for (const key of ["typesafe", "anthropic", "web"]) {
       document.querySelector(`[data-saved="${key}"]`).classList.toggle("hidden", !status[key]);
@@ -486,6 +595,145 @@ $("phoneForm").addEventListener("submit", async (event) => {
 });
 
 if (!matchMedia("(pointer: fine)").matches) $("input").placeholder = "Message THALAMUS…";
+// ---------- email ----------
+const LEVELS = ["Ignore", "Low", "Worth a look", "Important", "Urgent"];
+let mailFilter = "important";
+
+async function refreshMailBadge() {
+  const data = await api("/api/mail?surfaced=true&hours=24");
+  const count = data.items ? data.items.length : 0;
+  $("mailBadge").textContent = count;
+  $("mailBadge").classList.toggle("hidden", !count);
+}
+
+function mailItem(m) {
+  const level = Math.max(0, Math.min(4, Math.round(m.importance)));
+  const badge = m.category === "spam" ? `<span class="lvl scam">Spam/scam</span>` : `<span class="lvl l${level}">${LEVELS[level]}</span>`;
+  const reply = m.needs_reply >= 0.7 && m.category !== "spam" ? " · expects a reply" : "";
+  return `<li class="mail">
+    <div class="top">${badge}<span class="from">${escapeHtml(m.from_name || m.from_addr)}</span><span>${escapeHtml(m.category.replaceAll("_", " "))}${reply}</span><span>${ago(Date.now() / 1000 - m.received)}</span></div>
+    <div class="subject">${escapeHtml(m.subject)}</div>
+    ${m.reason ? `<div class="reason">${escapeHtml(m.reason)}</div>` : `<div class="muted" style="font-size:13px">${escapeHtml((m.snippet || "").slice(0, 140))}</div>`}
+    <div class="actions">${m.link && /^https:\/\//.test(m.link) ? `<a href="${escapeHtml(m.link)}" target="_blank" rel="noopener noreferrer">Open</a>` : ""}<button type="button" data-dismiss="${m.id}">Dismiss</button><span class="muted">${escapeHtml(m.account_address)}</span></div>
+  </li>`;
+}
+
+async function loadMail() {
+  const data = await api(`/api/mail?surfaced=${mailFilter === "important"}`);
+  if (data.error) { $("mailList").innerHTML = `<p class="muted">${escapeHtml(data.error.message)}</p>`; return; }
+  $("mailImportantBtn").setAttribute("aria-selected", String(mailFilter === "important"));
+  $("mailAllBtn").setAttribute("aria-selected", String(mailFilter !== "important"));
+  if (!data.accounts.length) {
+    $("mailList").innerHTML = `<p class="muted">No email accounts yet. Add one in <strong>Settings → Email accounts</strong> (on the PC).</p>`;
+    $("mailFooter").textContent = "";
+    return;
+  }
+  $("mailList").innerHTML = data.items.length
+    ? `<ul class="mails">${data.items.map(mailItem).join("")}</ul>`
+    : `<p class="muted">${mailFilter === "important" ? "Nothing needs your attention right now." : "No email in the last 3 days."}</p>`;
+  $("mailList").querySelectorAll("[data-dismiss]").forEach((b) => b.addEventListener("click", async () => {
+    await api(`/api/mail/items/${b.dataset.dismiss}/dismiss`, {});
+    b.closest("li").remove();
+    refreshMailBadge();
+  }));
+  $("mailFooter").innerHTML = data.accounts.map((a) => `${escapeHtml(a.address)}: ${a.last_check ? "checked " + ago(Date.now() / 1000 - a.last_check) : "not checked yet"}${a.last_error ? ` <span style="color:var(--danger)">· ${escapeHtml(a.last_error)}</span>` : ""}`).join("<br>")
+    + `<br>Email triage today: $${data.spent_today.toFixed(4)}`;
+}
+
+$("mailBtn").addEventListener("click", () => { $("mailDialog").showModal(); loadMail(); });
+$("closeMail").addEventListener("click", () => $("mailDialog").close());
+$("mailImportantBtn").addEventListener("click", () => { mailFilter = "important"; loadMail(); });
+$("mailAllBtn").addEventListener("click", () => { mailFilter = "all"; loadMail(); });
+$("mailCheck").addEventListener("click", async () => {
+  $("mailCheck").disabled = true; $("mailCheck").textContent = "Checking…";
+  const result = await api("/api/mail/check", {});
+  $("mailCheck").disabled = false; $("mailCheck").textContent = "Check now";
+  if (result.error) { $("mailFooter").textContent = result.error.message; return; }
+  await loadMail(); refreshMailBadge();
+});
+
+const MAIL_HELP = {
+  gmail: `Use a Google <strong>app password</strong>, not your normal password: <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a> (needs 2-Step Verification). Name it "THALAMUS".`,
+  icloud: `Use an <strong>app-specific password</strong> from <a href="https://account.apple.com" target="_blank" rel="noopener">account.apple.com</a> → Sign-In and Security → App-Specific Passwords.`,
+  yahoo: `Use an <strong>app password</strong> from your Yahoo/AOL account → Account security → Generate app password.`,
+  outlook: `Microsoft requires signing in (no passwords). Register a free app once using the steps below, then click <strong>Sign in with Microsoft</strong>.`,
+  other: `Use your email password or app password. Your provider's help pages list the IMAP server (usually port 993).`,
+};
+
+function updateMailForm() {
+  const provider = $("mailProvider").value;
+  $("mailHelp").innerHTML = MAIL_HELP[provider];
+  $("mailPasswordField").classList.toggle("hidden", provider === "outlook");
+  $("mailServerField").classList.toggle("hidden", provider !== "other");
+  $("mailClientField").classList.toggle("hidden", provider !== "outlook");
+  $("mailAdd").textContent = provider === "outlook" ? "Sign in with Microsoft" : "Test & add";
+}
+$("mailProvider").addEventListener("change", () => { $("mailStatus").textContent = ""; updateMailForm(); });
+
+async function loadMailSettings() {
+  updateMailForm();
+  const data = await api("/api/mail");
+  if (!data.error) {
+    $("mailAccounts").innerHTML = data.accounts.map((a) => `<li><span class="who">${escapeHtml(a.label)}</span><span class="muted">${a.last_check ? "checked " + ago(Date.now() / 1000 - a.last_check) : "not checked yet"}</span><button class="btn danger" type="button" data-remove="${a.id}">Remove</button>${a.last_error ? `<span class="err">${escapeHtml(a.last_error)}</span>` : ""}</li>`).join("");
+    $("mailAccounts").querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("Remove this account from THALAMUS? (Nothing in the mailbox itself is touched.)")) return;
+      await fetchJSON(`/api/mail/accounts/${b.dataset.remove}`, "DELETE");
+      loadMailSettings();
+    }));
+  }
+  const notify = await api("/api/notify");
+  if (!notify.error) {
+    $("notifyOn").checked = notify.enabled;
+    $("notifyTopic").classList.toggle("hidden", !notify.topic);
+    $("notifyTopic").innerHTML = notify.topic ? `Your topic: <code>${escapeHtml(notify.topic)}</code>` : "";
+  }
+}
+
+$("mailForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const provider = $("mailProvider").value;
+  $("mailAdd").disabled = true;
+  if (provider === "outlook") {
+    $("mailStatus").textContent = "Starting Microsoft sign-in…";
+    const flow = await api("/api/mail/outlook/start", { address: $("mailAddress").value, client_id: $("mailClientId").value });
+    if (flow.error) { $("mailStatus").textContent = flow.error.message; $("mailAdd").disabled = false; return; }
+    $("msCode").classList.remove("hidden");
+    $("msCode").innerHTML = `<div class="how"><strong>Go to <a href="${escapeHtml(flow.verification_uri)}" target="_blank" rel="noopener">${escapeHtml(flow.verification_uri)}</a> and enter this code:</strong><div style="font-size:28px;font-weight:700;letter-spacing:.12em;margin:8px 0">${escapeHtml(flow.user_code)}</div><span class="muted">Waiting for you to finish signing in…</span></div>`;
+    $("mailStatus").textContent = "";
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 3000));
+      const status = await api(`/api/mail/outlook/${flow.flow_id}`);
+      if (status.status === "pending") continue;
+      $("msCode").classList.add("hidden");
+      $("mailStatus").textContent = status.status === "done" ? "Signed in and connected." : status.error;
+      break;
+    }
+  } else {
+    $("mailStatus").textContent = "Testing the connection…";
+    const result = await api("/api/mail/accounts", {
+      provider, address: $("mailAddress").value, password: $("mailPassword").value,
+      host: $("mailHost").value, port: Number($("mailPort").value) || 0,
+    });
+    $("mailStatus").textContent = result.error ? result.error.message : "Connected. THALAMUS will check it every 15 minutes.";
+    if (!result.error) { $("mailPassword").value = ""; $("mailAddress").value = ""; }
+  }
+  $("mailAdd").disabled = false;
+  loadMailSettings();
+});
+
+async function saveNotify(extra = {}) {
+  const config = await api("/api/notify", { enabled: $("notifyOn").checked, ...extra });
+  if (config.error) { $("notifyStatus").textContent = config.error.message; return; }
+  loadMailSettings();
+}
+$("notifyOn").addEventListener("change", () => saveNotify());
+$("notifyNewTopic").addEventListener("click", () => { if (confirm("Make a new topic? You'll need to subscribe to the new name in ntfy.")) saveNotify({ new_topic: true }); });
+$("notifyTest").addEventListener("click", async () => {
+  $("notifyStatus").textContent = "Sending…";
+  const result = await api("/api/notify/test", {});
+  $("notifyStatus").textContent = result.error ? result.error.message : "Sent. Check your phone.";
+});
+
 $("panelBtn").addEventListener("click", () => document.body.classList.add("panel-open"));
 $("panelClose").addEventListener("click", () => document.body.classList.remove("panel-open"));
 

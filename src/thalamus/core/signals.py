@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-SignalKind = Literal["percept", "memory", "appraisal", "context", "thought", "web", "self", "fact"]
+SignalKind = Literal["percept", "memory", "appraisal", "context", "thought", "web", "self", "fact", "mail"]
 
 
 @dataclass

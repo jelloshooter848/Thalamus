@@ -20,6 +20,7 @@ from thalamus.core.neuromodulators import Neuromodulators
 from thalamus.core.region import BrainRegion, CycleContext, LastAction, StatusSink, Turn
 from thalamus.core.trace import CycleTrace
 from thalamus.core.workspace import GlobalWorkspace
+from thalamus.mail.service import MailService
 from thalamus.providers.base import Decision, DecisionProvider, Generation, LanguageProvider, TextSink
 from thalamus.providers.claude import ClaudeProvider
 from thalamus.providers.jev import JevProvider
@@ -29,6 +30,7 @@ from thalamus.regions.amygdala import Amygdala
 from thalamus.regions.basal_ganglia import BasalGanglia
 from thalamus.regions.broca import Broca
 from thalamus.regions.hippocampus import Hippocampus
+from thalamus.regions.mail_sense import MailSense
 from thalamus.regions.prefrontal import PrefrontalCortex, buffer_window
 from thalamus.regions.self_model import SelfModel
 from thalamus.regions.semantic import Reconsolidation, SemanticMemory
@@ -61,6 +63,7 @@ class Brain:
         memory: MemoryStore,
         clock: Callable[[], float] = time.time,
         search: SearchProvider | None = None,
+        mail: MailService | None = None,
     ) -> None:
         self.settings = settings
         self.jev = jev
@@ -87,6 +90,10 @@ class Brain:
         self.self_model = SelfModel()
         self.semantic = SemanticMemory()
         self.reconsolidation = Reconsolidation()
+        self.mail = mail
+        if mail is not None:
+            mail._on_costs = lambda decisions, generations: self.record_background_costs("mail", decisions, generations)
+        self.mail_sense = MailSense(mail)
         self.subcortical: list[BrainRegion] = [
             self.thalamus,
             self.amygdala,
@@ -96,6 +103,7 @@ class Brain:
             self.web,
             self.self_model,
             self.reconsolidation,
+            self.mail_sense,
         ]
 
         self._turn = 0
@@ -197,6 +205,7 @@ class Brain:
             now=now,
             conversation_started=self.conversation_started,
             web_enabled=self.web.enabled,
+            mail_accounts=[a.address for a in self.mail.accounts(enabled_only=True)] if self.mail else [],
             on_text=on_text,
             on_status=on_status,
         )
@@ -224,6 +233,7 @@ class Brain:
         for generation in edit.generations:
             self._account_llm(generation)
         self.semantic.recall(ctx)
+        await self.mail_sense.sense(ctx)
 
         # Two parallel streams feed awareness: memories recalled from the past, and the web.
         # Each is gated by JEV before it may compete for the global workspace.
@@ -339,6 +349,16 @@ class Brain:
             self.memory.log_sleep(report, self.clock())
         return report
 
+    def record_background_costs(self, kind: str, decisions: list[Decision], generations: list[Generation]) -> None:
+        """Work done outside a conversation (email triage) goes to the ledger with its own daily budget,
+        not to the chat session's budget."""
+        body = self.homeostasis
+        spent = {
+            "jev": sum(body.cost_of("jev", d.input_tokens) for d in decisions),
+            "claude": sum(body.cost_of(g.model, g.input_tokens, g.output_tokens) for g in generations),
+        }
+        self.memory.record_costs(kind, spent, self.clock())
+
     def _account_llm(self, generation: Generation) -> None:
         self.homeostasis.record(generation.model, generation.input_tokens, generation.output_tokens)
 
@@ -346,11 +366,10 @@ class Brain:
 def create_brain(settings: Settings) -> Brain:
     """Build a brain on the real providers. Raises MissingJevKeyError without a TypeSafe key."""
     require_jev_key()
+    from thalamus.mail.secrets import default_secrets
+
     search = TavilySearch(depth=settings.web.depth) if settings.web.enabled and search_key() else None
-    return Brain(
-        settings,
-        jev=JevProvider(settings.models.jev),
-        cortex=ClaudeProvider(settings.models),
-        memory=MemoryStore(settings.memory_path),
-        search=search,
-    )
+    jev, cortex = JevProvider(settings.models.jev), ClaudeProvider(settings.models)
+    memory = MemoryStore(settings.memory_path)
+    mail = MailService(memory, settings, jev, cortex, default_secrets(settings.memory_path.parent))
+    return Brain(settings, jev=jev, cortex=cortex, memory=memory, search=search, mail=mail)

@@ -19,6 +19,7 @@ that dominate multi-agent systems.
 | Anterior cingulate | Metacognitive fast/slow arbitration (expected value of control) | code over JEV probes | `regions/acc.py` |
 | Basal ganglia + striatum | Go / NoGo / hyperdirect action selection; actor-critic learning | JEV + code | `regions/basal_ganglia.py` |
 | Medial prefrontal cortex (self-model) | Self-referential processing: true, current facts about its own abilities | JEV (is this about me?) + code | `regions/self_model.py` |
+| Mail sense | Interoception of the inbox: noticing what needs attention | JEV (triage + was email asked about?) + Claude Haiku (reason lines) + IMAP | `regions/mail_sense.py`, `mail/` |
 | Web sense | Orienting to the outside world; sensory gating of what it finds | JEV (need + relevance) + Claude Haiku (query) + Tavily | `regions/web_sense.py`, `providers/search.py` |
 | Broca's area | Language production | Claude Haiku (or the PFC's utterance) | `regions/broca.py` |
 | Global workspace | Capacity-limited competition and broadcast | code | `core/workspace.py` |
@@ -103,6 +104,28 @@ own:
 The memory recall stream and the web stream run in parallel (`asyncio.gather`). Tavily calls are
 billed to the hypothalamic budget. A failed search is logged and the conversation carries on.
 
+## Email triage (`mail/`)
+
+Email is another sense, read-only by construction:
+
+1. **Fetch.** `mail/imap.py` opens the inbox with `EXAMINE` (read-only) and fetches with
+   `BODY.PEEK`, so nothing is ever marked as read. The first check looks back 2 days; later checks
+   fetch only new UIDs. Outlook signs in through Microsoft's device-code flow (MSAL) and uses
+   XOAUTH2. Passwords and tokens live in the OS keyring (`mail/secrets.py`), with a private 0600
+   file as fallback.
+2. **Pre-compute.** `mail/parse.py` strips HTML and quoted replies, and computes facts code knows
+   exactly: whether you've ever emailed the sender (from your Sent folder), whether you're
+   addressed directly, recipient count, mailing-list headers, age in hours.
+3. **Judge.** One JEV call per ~10 emails asks four questions each: category (Choice), importance
+   (Score 0–4), needs a reply (Noul) and scam (Noul). Email text is labelled untrusted data.
+4. **Decide in code.** P(scam) ≥ 0.8 or category spam means never surfaced. An email surfaces at
+   importance ≥ `mail.surface_at`, or when a known sender expects a reply. Claude Haiku writes a
+   one-line reason only for surfaced mail.
+5. **Notify.** Mail above `mail.notify_level` is pushed once through ntfy. Triage stops for the
+   day at `mail.daily_budget_usd`; costs go to the ledger under "mail".
+6. **Answer.** When JEV judges a message is about email, the mail sense posts a summary of the last
+   48 hours to the workspace (checking first if the last check is over 5 minutes old).
+
 ## Semantic memory and sleep
 
 Episodes are raw experience. **Facts** are what THALAMUS *knows* about you, distilled from them:
@@ -171,5 +194,8 @@ they never make decisions on their own.
     passcodes lock the device out for a while.
   - A login gives a signed, HttpOnly session cookie. Changing the passcode logs every phone out.
   - Keys and settings can only be changed from the PC (`thalamus/remote.py`).
+- **Email is read-only.** Mail is opened with `EXAMINE` and `BODY.PEEK`; account settings and
+  notification topics can only be changed from the PC, and email content is treated as data,
+  never instructions.
 - **JEV is required.** Without `TYPESAFE_API_KEY` the brain refuses to start; there is no silent
   substitute.

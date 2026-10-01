@@ -184,3 +184,53 @@ def test_facts_can_be_viewed_edited_pinned_and_deleted(tmp_path):
     assert any(f["origin"] == "you" for f in facts)
     client.delete(f"/api/facts/{manual['id']}", headers=HEADERS)
     assert len(client.get("/api/facts", headers=HEADERS).json()["facts"]) == 2
+
+
+def make_mail_client(tmp_path, client_address=None):
+    from fakes import FakeMailSource, FakeNotifier
+    from thalamus.mail.secrets import MemorySecrets
+    from thalamus.mail.service import MailService
+
+    store = MemoryStore(":memory:")
+    source, notifier = FakeMailSource(), FakeNotifier()
+
+    def factory(settings):
+        jev, cortex = FakeJev(scenario_rules), FakeCortex()
+        mail = MailService(store, settings, jev, cortex, MemorySecrets(), source=source, notifier=notifier)
+        return Brain(settings, jev=jev, cortex=cortex, memory=store, mail=mail)
+
+    app = create_app(Settings(), env_path=tmp_path / ".env", brain_factory=factory, token=TOKEN,
+                     remote_active=True)
+    kwargs = {"client": client_address} if client_address else {}
+    return TestClient(app, **kwargs), source, notifier
+
+
+def test_mail_accounts_check_dismiss_and_notify(tmp_path):
+    from fakes import raw_email
+
+    client, source, notifier = make_mail_client(tmp_path)
+    added = client.post("/api/mail/accounts", json={"provider": "gmail", "address": "Me@Example.com",
+                                                   "password": "app-pw"}, headers=HEADERS).json()
+    assert added["account"]["address"] == "me@example.com" and "password" not in added["account"]
+    source.inbox.append(raw_email("Your bill is due", "Invoice $20 due Friday", sender="Bank <b@bank.com>"))
+    assert client.post("/api/mail/check", headers=HEADERS).json()["surfaced"] == 1
+    overview = client.get("/api/mail", headers=HEADERS).json()
+    [item] = overview["items"]
+    assert item["surfaced"] == 1 and overview["accounts"][0]["last_error"] is None
+    client.post(f"/api/mail/items/{item['id']}/dismiss", headers=HEADERS)
+    assert client.get("/api/mail", headers=HEADERS).json()["items"] == []
+
+    config = client.post("/api/notify", json={"enabled": True}, headers=HEADERS).json()
+    assert config["enabled"] and config["topic"].startswith("thalamus-")
+    assert client.post("/api/notify/test", headers=HEADERS).json() == {"ok": True}
+    assert notifier.sent[-1]["topic"] == config["topic"]
+
+
+def test_bad_mail_login_is_explained(tmp_path):
+    from thalamus.mail.imap import MailError
+
+    client, source, _ = make_mail_client(tmp_path)
+    source.fail = MailError("me@gmail.com: the mail server rejected the login. Use a Google app password.")
+    r = client.post("/api/mail/accounts", json={"provider": "gmail", "address": "me@gmail.com",
+                                               "password": "wrong"}, headers=HEADERS)
+    assert r.status_code == 400 and "app password" in r.json()["error"]["message"]
