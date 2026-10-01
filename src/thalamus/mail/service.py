@@ -70,7 +70,7 @@ class MailService:
 
     def _credential(self, account: Account) -> str:
         if account.auth == "oauth":
-            return self.outlook.token(account.client_id, account.secret_name)
+            return self.outlook.token(account.client_id, account.secret_name, account.address)
         secret = self.secrets.get(account.secret_name)
         if not secret:
             raise MailError(f"{account.address}: no password saved. Add the account again in Settings.")
@@ -115,9 +115,11 @@ class MailService:
 
     # ----- Microsoft sign-in --------------------------------------------------------------------
     async def outlook_start(self, address: str, client_id: str) -> dict:
-        flow = await asyncio.to_thread(self.outlook.start, client_id.strip())
-        flow_id = uuid.uuid4().hex
         draft = self.draft_account("outlook", address, client_id=client_id)
+        if "@" not in draft.address:
+            raise MailError("Enter your Outlook email address first.")
+        flow = await asyncio.to_thread(self.outlook.start, draft.client_id, draft.address)
+        flow_id = uuid.uuid4().hex
         state = {"status": "pending", "user_code": flow["user_code"], "verification_uri": flow["verification_uri"],
                  "message": flow.get("message", "")}
         self.flows[flow_id] = state
@@ -125,7 +127,8 @@ class MailService:
         async def finish() -> None:
             cache_name = f"outlook:{flow_id}"
             try:
-                signed_in = await asyncio.to_thread(self.outlook.finish, draft.client_id, flow, cache_name)
+                signed_in = await asyncio.to_thread(self.outlook.finish, draft.client_id, flow, cache_name,
+                                                      draft.address)
                 draft.username = signed_in or draft.address
                 draft.secret_key = cache_name
                 await asyncio.to_thread(self.source.test, draft)
