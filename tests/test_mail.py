@@ -189,14 +189,14 @@ class FakeOutlook:
     def __init__(self):
         self.cache = {}
 
-    def start(self, client_id):
+    def start(self, client_id, address):
         return {"user_code": "ABCD-1234", "verification_uri": "https://microsoft.com/devicelogin", "message": "go"}
 
-    def finish(self, client_id, flow, cache_name):
+    def finish(self, client_id, flow, cache_name, address):
         self.cache[cache_name] = "token-cache"
         return "me@outlook.com"
 
-    def token(self, client_id, cache_name):
+    def token(self, client_id, cache_name, address):
         return "access-token"
 
 
@@ -217,3 +217,14 @@ async def test_outlook_sign_in_creates_an_account(store):
     [account] = service.accounts()
     assert account.auth == "oauth" and account.client_id == "client-123" and account.host == "outlook.office365.com"
     assert source.tested == ["me@outlook.com"]
+
+
+def test_outlook_authority_follows_the_address():
+    from thalamus.mail.outlook import authority_for, explain
+
+    assert authority_for("me@outlook.com").endswith("/consumers")
+    assert authority_for("me@hotmail.co.uk").endswith("/consumers")
+    assert authority_for("me@live.com").endswith("/consumers")
+    assert authority_for("david@etasv.org").endswith("/etasv.org")
+    message = explain({"error_description": "AADSTS90094: Admin consent required. Trace ID: 1"}, "x")
+    assert "administrator" in message and "Trace ID" not in message
