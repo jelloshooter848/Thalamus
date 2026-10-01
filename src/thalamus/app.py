@@ -86,6 +86,26 @@ class FactCreate(BaseModel):
     category: str = "other"
 
 
+class MailAccountCreate(BaseModel):
+    provider: str
+    address: str
+    password: str = ""
+    host: str = ""
+    port: int = 0
+    username: str = ""
+
+
+class OutlookStart(BaseModel):
+    address: str
+    client_id: str
+
+
+class NotifyUpdate(BaseModel):
+    enabled: bool
+    server: str = ""
+    new_topic: bool = False
+
+
 class FactUpdate(BaseModel):
     text: str | None = None
     pinned: bool | None = None
@@ -93,7 +113,8 @@ class FactUpdate(BaseModel):
 
 
 PUBLIC_PATHS = {"/login", "/manifest.webmanifest", "/icon-180.png", "/icon-512.png"}
-PC_ONLY = {"/api/setup", "/api/remote"}  # settings and keys can only be changed on the PC
+# Settings, keys and accounts can only be changed on the PC.
+PC_ONLY = ("/api/setup", "/api/remote", "/api/mail/accounts", "/api/mail/outlook", "/api/notify")
 MANIFEST = {
     "name": "THALAMUS",
     "short_name": "THALAMUS",
@@ -169,11 +190,30 @@ def create_app(
 ) -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
-        watcher = asyncio.create_task(sleep_when_idle()) if sleep_check_seconds else None
+        watchers = [asyncio.create_task(sleep_when_idle()), asyncio.create_task(check_mail())] \
+            if sleep_check_seconds else []
         yield
-        if watcher:
+        for watcher in watchers:
             watcher.cancel()
         await reset_brain()
+
+    async def check_mail() -> None:
+        """Check email on schedule while THALAMUS runs (read-only)."""
+        while True:
+            await asyncio.sleep(sleep_check_seconds)
+            try:
+                service = mail_service()
+                if service is not None and service.due():
+                    await service.check_all()
+            except Exception:  # noqa: BLE001 - a failed check is recorded per account; keep the server up
+                continue
+
+    def mail_service():
+        """The brain's mail service, if the brain can be loaded (keys present)."""
+        try:
+            return brain().mail
+        except Exception:  # noqa: BLE001 - no keys yet
+            return None
 
     async def sleep_when_idle() -> None:
         """Consolidate memories in the background once THALAMUS has been idle for a while."""
@@ -237,7 +277,7 @@ def create_app(
                 if path == "/":
                     return HTMLResponse(login_page)
                 return JSONResponse({"error": {"message": "Please log in again."}}, status_code=401)
-            if path in PC_ONLY and request.method != "GET":
+            if path.startswith(PC_ONLY) and request.method != "GET":
                 return JSONResponse({"error": {"message": "Change settings on the PC."}}, status_code=403)
         if path.startswith("/api/") and not secrets.compare_digest(
             request.headers.get(TOKEN_HEADER, ""), app.state.token
@@ -457,6 +497,102 @@ def create_app(
             except Exception as exc:  # noqa: BLE001
                 return error(exc)
         return JSONResponse(report)
+
+    def require_mail():
+        service = mail_service()
+        if service is None:
+            raise_error = JSONResponse({"error": {"message": "Finish setting up your keys first."}}, status_code=400)
+            return None, raise_error
+        return service, None
+
+    @app.get("/api/mail")
+    async def mail_overview(surfaced: bool = False, hours: float = 72) -> JSONResponse:
+        service, failure = require_mail()
+        if failure:
+            return failure
+        return JSONResponse({
+            "accounts": [a.public() for a in service.accounts()],
+            "items": service.items(hours=hours, surfaced_only=surfaced),
+            "notify": {k: v for k, v in service.notify_settings().items() if k != "topic"},
+            "spent_today": service.spent_today(),
+        })
+
+    @app.post("/api/mail/check")
+    async def mail_check() -> JSONResponse:
+        service, failure = require_mail()
+        return failure or JSONResponse(await service.check_all())
+
+    @app.post("/api/mail/items/{item_id}/dismiss")
+    async def mail_dismiss(item_id: int) -> JSONResponse:
+        service, failure = require_mail()
+        if failure:
+            return failure
+        service.dismiss(item_id)
+        return JSONResponse({"ok": True})
+
+    @app.post("/api/mail/accounts")
+    async def mail_add(body: MailAccountCreate) -> JSONResponse:
+        service, failure = require_mail()
+        if failure:
+            return failure
+        if not body.address.strip() or not body.password.strip():
+            return JSONResponse({"error": {"message": "Enter the email address and its app password."}},
+                                status_code=400)
+        draft = service.draft_account(body.provider, body.address, body.host, body.port, body.username)
+        try:
+            account = await service.add_password_account(draft, body.password.strip())
+        except Exception as exc:  # noqa: BLE001 - shown on the settings page
+            return JSONResponse({"error": {"message": str(exc)}}, status_code=400)
+        return JSONResponse({"account": account.public()})
+
+    @app.delete("/api/mail/accounts/{account_id}")
+    async def mail_remove(account_id: int) -> JSONResponse:
+        service, failure = require_mail()
+        if failure:
+            return failure
+        service.remove_account(account_id)
+        return JSONResponse({"ok": True})
+
+    @app.post("/api/mail/outlook/start")
+    async def outlook_start(body: OutlookStart) -> JSONResponse:
+        service, failure = require_mail()
+        if failure:
+            return failure
+        try:
+            return JSONResponse(await service.outlook_start(body.address, body.client_id))
+        except Exception as exc:  # noqa: BLE001
+            return JSONResponse({"error": {"message": str(exc)}}, status_code=400)
+
+    @app.get("/api/mail/outlook/{flow_id}")
+    async def outlook_status(flow_id: str) -> JSONResponse:
+        service, failure = require_mail()
+        return failure or JSONResponse(service.outlook_status(flow_id))
+
+    @app.get("/api/notify")
+    async def notify_get(request: Request) -> JSONResponse:
+        service, failure = require_mail()
+        if failure:
+            return failure
+        config = service.notify_settings()
+        if not is_local(request):
+            config.pop("topic")
+        return JSONResponse(config)
+
+    @app.post("/api/notify")
+    async def notify_set(body: NotifyUpdate) -> JSONResponse:
+        service, failure = require_mail()
+        return failure or JSONResponse(service.configure_notify(body.enabled, body.server, body.new_topic))
+
+    @app.post("/api/notify/test")
+    async def notify_test() -> JSONResponse:
+        service, failure = require_mail()
+        if failure:
+            return failure
+        try:
+            await service.send_test()
+        except Exception as exc:  # noqa: BLE001
+            return JSONResponse({"error": {"message": f"Couldn't reach the ntfy server: {exc}"}}, status_code=502)
+        return JSONResponse({"ok": True})
 
     @app.get("/api/memory")
     async def memory() -> dict:

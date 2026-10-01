@@ -61,6 +61,48 @@ CREATE TABLE IF NOT EXISTS sleep_log (
     report TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mail_accounts (
+    id INTEGER PRIMARY KEY,
+    provider TEXT NOT NULL,
+    address TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    client_id TEXT NOT NULL DEFAULT '',
+    folder TEXT NOT NULL DEFAULT 'INBOX',
+    uidvalidity INTEGER NOT NULL DEFAULT 0,
+    last_uid INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_check REAL,
+    last_error TEXT,
+    created REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mail_items (
+    id INTEGER PRIMARY KEY,
+    account INTEGER NOT NULL,
+    uid INTEGER NOT NULL,
+    message_id TEXT,
+    received REAL NOT NULL,
+    from_name TEXT,
+    from_addr TEXT,
+    subject TEXT,
+    snippet TEXT,
+    category TEXT,
+    importance REAL,
+    needs_reply REAL,
+    scam REAL,
+    known_sender INTEGER,
+    reason TEXT,
+    surfaced INTEGER NOT NULL DEFAULT 0,
+    notified INTEGER NOT NULL DEFAULT 0,
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    link TEXT,
+    created REAL NOT NULL,
+    UNIQUE(account, uid)
+);
+CREATE TABLE IF NOT EXISTS mail_contacts (account INTEGER NOT NULL, address TEXT NOT NULL,
+    PRIMARY KEY (account, address));
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     started REAL NOT NULL,
@@ -388,10 +430,12 @@ class MemoryStore:
         )
         self._db.commit()
 
-    def spending(self, since: float = 0.0) -> dict[str, float]:
-        rows = self._db.execute(
-            "SELECT service, SUM(usd) AS total FROM ledger WHERE created >= ? GROUP BY service", (since,)
-        ).fetchall()
+    def spending(self, since: float = 0.0, conversation: str | None = None) -> dict[str, float]:
+        query = "SELECT service, SUM(usd) AS total FROM ledger WHERE created >= ?"
+        args: tuple = (since,)
+        if conversation is not None:
+            query, args = query + " AND conversation = ?", (since, conversation)
+        rows = self._db.execute(query + " GROUP BY service", args).fetchall()
         return {r["service"]: r["total"] for r in rows}
 
     # ----- learned values (striatal critic) --------------------------------------------------
@@ -415,6 +459,11 @@ class MemoryStore:
 
     def values(self) -> list[sqlite3.Row]:
         return self._db.execute("SELECT * FROM vals ORDER BY context, option").fetchall()
+
+    @property
+    def db(self) -> sqlite3.Connection:
+        """Shared connection for other stores (mail) that keep their tables in the same file."""
+        return self._db
 
     def close(self) -> None:
         self._db.close()

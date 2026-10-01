@@ -30,6 +30,12 @@ admit = 4                     # most results allowed into awareness
 depth = "basic"               # "advanced" costs 2 Tavily credits per search
 price_per_call_usd = 0.008
 
+[mail]
+check_minutes = 15            # how often to check email while THALAMUS runs
+daily_budget_usd = 0.50       # most to spend on email triage per day
+surface_at = 2.3              # importance (0 ignore .. 4 urgent) that puts an email in front of you
+notify_level = "important"    # phone alerts for "important" (and urgent) or only "urgent" mail
+
 [remote]
 port = 8765                   # fixed, so the phone's home-screen icon keeps working
 session_days = 90             # how long a phone stays logged in

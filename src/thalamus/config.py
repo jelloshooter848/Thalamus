@@ -97,6 +97,14 @@ class Web:
 
 
 @dataclass
+class Mail:
+    check_minutes: float = 15.0  # how often to check email while THALAMUS runs
+    daily_budget_usd: float = 0.50  # most to spend on email triage per day
+    surface_at: float = 2.3  # importance (0 ignore .. 4 urgent) that puts an email in front of you
+    notify_level: str = "important"  # phone alerts for "important" (and urgent) or only "urgent" mail
+
+
+@dataclass
 class Remote:
     port: int = 8765  # fixed, so the phone's home-screen icon keeps working
     session_days: float = 90.0  # how long a phone stays logged in
@@ -112,6 +120,7 @@ class Settings:
     memory: Memory = field(default_factory=Memory)
     web: Web = field(default_factory=Web)
     remote: Remote = field(default_factory=Remote)
+    mail: Mail = field(default_factory=Mail)
     workspace_capacity: int = 7
     history_turns: int = 6
     # After this long without a message, the next one starts a new conversation.

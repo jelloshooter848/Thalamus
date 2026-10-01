@@ -80,6 +80,18 @@ class SelfModel(BrainRegion):
             )
         else:
             facts.append("Long-term memory: YES, but it's empty so far. Nothing has been stored yet.")
+        mail = getattr(ctx, "mail_accounts", None)
+        if mail:
+            facts.append(
+                f"Email: YES, read-only. You can read (never send, move or delete) {len(mail)} account(s): "
+                f"{', '.join(mail)}. You check them every {ctx.settings.mail.check_minutes:.0f} minutes, flag "
+                "what matters, and can alert the user's phone. Ask-to-check works any time."
+            )
+        else:
+            facts.append(
+                "Email: not connected yet. The user can add Gmail, iCloud, Outlook or other accounts in "
+                "Settings → Email accounts, read-only."
+            )
         facts.append(
             f"This conversation: {ctx.turn} message(s) so far. Earlier conversations are reachable "
             "only through memory."

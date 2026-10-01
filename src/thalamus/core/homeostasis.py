@@ -29,6 +29,11 @@ class Homeostasis:
         family = max((name for name in self.budget.prices if model.startswith(name)), key=len, default=None)
         return self.budget.prices[family] if family else None
 
+    def cost_of(self, model: str, input_tokens: int, output_tokens: int = 0) -> float:
+        """Price a call without charging it to this session (background work keeps its own budget)."""
+        prices = self.price(model) or (0.0, 0.0)
+        return (input_tokens * prices[0] + output_tokens * prices[1]) / 1_000_000
+
     def record(self, model: str, input_tokens: int, output_tokens: int = 0) -> float:
         prices = self.price(model)
         if prices is None:
